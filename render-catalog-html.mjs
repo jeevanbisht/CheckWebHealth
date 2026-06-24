@@ -248,7 +248,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <button class="kpi kpi-filter err" data-filter="verdict:ERROR"><div class="n">${overall.ERROR}</div><div class="l">Error</div></button>
   </div>
   <div class="vendbar">${allVendors.map(([k, v]) => `<button class="vendor-chip" data-filter="vendor:${esc(k)}">${esc(k)}: ${v}</button>`).join(" ")}</div>
-  <div class="filter-state" id="filterState">Showing <b>all rows</b>. Click a KPI card or vendor chip to filter.</div>
+  <div class="filter-state" id="filterState">Showing <b>all rows</b>. Click a verdict card and/or a vendor chip — they combine (e.g. OK + Akamai).</div>
   <div class="legend">
     <div><code>NETWORK-CAUSED</code> = loads OK on the <b>direct</b> baseline but fails through <b>GSA</b> — the actionable, network-attributable failures.</div>
     <div><code>IP_REPUTATION</code> = bot sensor validated the browser (<code>_abck passed</code>) yet the request was still denied ⇒ block is keyed on egress IP/ASN, not the browser. Strongest single signal for a CDN escalation.</div>
@@ -267,33 +267,37 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   Source: probe-core.mjs · Reporter: @jeevanbisht</footer>
 </div>
 <script>
-  const activeFilter = { type: null, value: null };
+  const activeFilters = { verdict: null, vendor: null, delta: null };
   const filterState = document.getElementById("filterState");
   function setActiveButtons() {
     document.querySelectorAll(".kpi-filter,.vendor-chip").forEach(function(el){
-      el.classList.toggle("active", el.dataset.filter === activeFilter.type + ":" + activeFilter.value);
+      const parts = el.dataset.filter.split(":");
+      const type = parts[0], value = parts.slice(1).join(":");
+      el.classList.toggle("active", activeFilters[type] === value);
     });
   }
+  function rowMatches(row) {
+    if (activeFilters.verdict !== null) {
+      var ok = activeFilters.verdict.split(",").map(function(v){return v.trim();}).includes(row.dataset.verdict);
+      if (!ok) return false;
+    }
+    if (activeFilters.vendor !== null && row.dataset.vendor !== activeFilters.vendor) return false;
+    if (activeFilters.delta !== null && row.dataset.delta !== activeFilters.delta) return false;
+    return true;
+  }
   function applyFilter() {
-    const filterText = activeFilter.type ? activeFilter.type + ": " + activeFilter.value : "all rows";
-    filterState.innerHTML = "Showing <b>" + filterText + "</b>. Click again to clear.";
+    const active = Object.keys(activeFilters).filter(function(k){ return activeFilters[k] !== null; })
+      .map(function(k){ return k + ": " + activeFilters[k]; });
+    const filterText = active.length ? active.join(" + ") : "all rows";
+    filterState.innerHTML = "Showing <b>" + filterText + "</b>. Click a card/chip to toggle; click again to clear.";
     document.querySelectorAll("tbody tr").forEach(function(row){
-      if (!activeFilter.type) { row.style.display = ""; return; }
-      var ok = true;
-      if (activeFilter.type === "verdict") {
-        ok = activeFilter.value.split(",").map(function(v){return v.trim();}).includes(row.dataset.verdict);
-      } else if (activeFilter.type === "vendor") {
-        ok = row.dataset.vendor === activeFilter.value;
-      } else if (activeFilter.type === "delta") {
-        ok = row.dataset.delta === activeFilter.value;
-      }
-      row.style.display = ok ? "" : "none";
+      row.style.display = rowMatches(row) ? "" : "none";
     });
     setActiveButtons();
   }
   function setFilter(type, value) {
-    if (activeFilter.type === type && activeFilter.value === value) { activeFilter.type = null; activeFilter.value = null; }
-    else { activeFilter.type = type; activeFilter.value = value; }
+    if (activeFilters[type] === value) { activeFilters[type] = null; }
+    else { activeFilters[type] = value; }
     applyFilter();
   }
   document.querySelectorAll(".tab").forEach(function(t){
