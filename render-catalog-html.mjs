@@ -215,6 +215,8 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .statusbar{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:12px;color:var(--mut)}
   .statusbar select{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 8px;font:inherit;font-size:12px;cursor:pointer}
   .statusbar select:hover{border-color:var(--accent)}
+  .export-btn{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 11px;font:inherit;font-size:12px;cursor:pointer;margin-left:8px}
+  .export-btn:hover{border-color:var(--accent);background:#1b2433}
   .vendor-chip{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:3px 9px;color:var(--ink);cursor:pointer;font-size:12px;appearance:none;-webkit-appearance:none;font:inherit}
   .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5;border-bottom:1px solid var(--line)}
   .tab{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 11px;cursor:pointer;font-size:12px}
@@ -271,6 +273,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       <option value="">All (${results.length})</option>
       ${allStatuses.map((s) => `<option value="${esc(s)}">${esc(s)} (${statusCounts[s]})</option>`).join("")}
     </select>
+    <button id="exportXls" class="export-btn" type="button">⤓ Export filtered (.xls)</button>
   </div>
   <div class="filter-state" id="filterState">Showing <b>all rows</b>. Click a verdict card and/or a vendor chip — they combine (e.g. OK + Akamai).</div>
   <div class="legend">
@@ -374,6 +377,45 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       rows.forEach(function(r){ tbody.appendChild(r); });
     });
   });
+  const exportBtn = document.getElementById("exportXls");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", function(){
+      const panel = document.querySelector(".panel.active");
+      if (!panel) return;
+      const table = panel.querySelector("table");
+      if (!table) return;
+      const heads = Array.prototype.slice.call(table.querySelectorAll("thead th"));
+      const imgIdx = heads.findIndex(function(h){ return h.textContent.trim().toLowerCase() === "image"; });
+      function keep(i){ return i !== imgIdx; }
+      function xesc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+      var thtml = "<tr>";
+      heads.forEach(function(h,i){ if (keep(i)) thtml += "<th>" + xesc(h.textContent.trim()) + "</th>"; });
+      thtml += "</tr>";
+      var bodyHtml = "";
+      Array.prototype.slice.call(table.querySelectorAll("tbody tr")).forEach(function(row){
+        if (row.style.display === "none") return;
+        bodyHtml += "<tr>";
+        Array.prototype.slice.call(row.children).forEach(function(cell,i){
+          if (!keep(i)) return;
+          var txt = cell.textContent.replace(/\\s+/g," ").trim();
+          bodyHtml += "<td>" + xesc(txt) + "</td>";
+        });
+        bodyHtml += "</tr>";
+      });
+      const panelTitle = (panel.querySelector("h2") ? panel.querySelector("h2").textContent.trim() : "report");
+      const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+      const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">' +
+        '<head><meta charset="utf-8"/><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>' +
+        xesc(panelTitle.slice(0,31)) + '</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>' +
+        '<body><table border="1">' + thtml + bodyHtml + "</table></body></html>";
+      const blob = new Blob(["\\ufeff", html], { type: "application/vnd.ms-excel" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "webhealth-" + panelTitle.replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"") + "-" + stamp + ".xls";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    });
+  }
   applyFilter();
 </script></body></html>`;
 
