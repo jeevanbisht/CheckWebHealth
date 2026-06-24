@@ -4,9 +4,6 @@ A portable runbook to test, **from any machine (e.g., behind GSA)**, whether a S
 path is blocked by CDN/WAF bot-detection (Akamai Bot Manager, Cloudflare, Imperva, etc.)
 across **2,500 sites in 50 categories**.
 
-> Origin: extends the `automobiles.honda.com` → Akamai Bot Manager 403 investigation.
-> See `GSA-Investigation-Note-honda-akamai-403.md` and `GSA-Blocked-Site-Investigation-Playbook.md`.
-
 ---
 
 ## What it does

@@ -13,14 +13,14 @@ Put these in **one folder** on the target machine:
 ```
 package.json
 sites-catalog.mjs          # the 50×50 site catalog
-probe-catalog.mjs          # the probe
+probe-core.mjs             # shared probe engine
+probe-catalog.mjs          # the full 2,500-site probe
+probe-sample.mjs           # 10-category sample probe
+probe-evidence.mjs         # re-screenshot pass for non-OK rows
 render-catalog-html.mjs    # the HTML report generator
 GSA-Catalog-Probe-Runbook.md
 INSTALL.md                 # this file
 ```
-
-(`probe-akamai-browser.mjs` / `render-akamai-html.mjs` are the small single-run variants —
-optional.)
 
 ---
 

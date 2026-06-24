@@ -1,11 +1,10 @@
 {
   "name": "scenario-recorder",
   "version": "1.0.0",
-  "description": "Capture a HAR file for a GSA-tunneled web transaction",
+  "description": "Probe a catalog of sites through a SASE/GSA tunnel to detect CDN/WAF bot-blocking and render an HTML report",
   "private": true,
   "type": "module",
   "scripts": {
-    "capture": "node capture-har.js",
     "setup": "playwright install chromium msedge",
     "sample": "node probe-sample.mjs",
     "probe": "node probe-catalog.mjs",

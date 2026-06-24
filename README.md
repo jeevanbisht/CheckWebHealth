@@ -14,9 +14,10 @@ Denied"** for GSA-tunneled users. This kit lets you check **where else** that re
 | Area | Files |
 |------|-------|
 | **Breadth probe** (2,500 sites, 50 categories) | `sites-catalog.mjs`, `probe-catalog.mjs`, `render-catalog-html.mjs` |
-| **Single-run probe** (small list + screenshots) | `probe-akamai-browser.mjs`, `render-akamai-html.mjs` |
-| **HAR deep-dive** (one transaction) | `capture-har.js`, `analyze-har.mjs` |
-| **Docs** | `INSTALL.md`, `GSA-Catalog-Probe-Runbook.md`, `GSA-Blocked-Site-Investigation-Playbook.md`, `GSA-Investigation-Note-honda-akamai-403.md` |
+| **Shared probe engine** | `probe-core.mjs` |
+| **Sample run** (10 categories) | `probe-sample.mjs` |
+| **Evidence re-screenshot pass** | `probe-evidence.mjs` |
+| **Docs** | `INSTALL.md`, `GSA-Catalog-Probe-Runbook.md` |
 
 ---
 
@@ -66,11 +67,12 @@ Full setup details: **[INSTALL.md](INSTALL.md)** · usage & interpretation:
 
 | Script | Action |
 |--------|--------|
-| `npm run setup` | Download the Chromium browser binary |
+| `npm run setup` | Install the Chromium + Edge browser binaries |
+| `npm run sample` | Run a 10-category sample probe (with screenshots) |
 | `npm run probe` | Run the 2,500-site catalog probe |
+| `npm run evidence` | Re-screenshot non-OK rows of an existing run |
 | `npm run report` | Build the tabbed HTML report from results |
 | `npm run all` | Probe + report |
-| `npm run capture` | Capture a single HAR (deep-dive) |
 
 ---
 
