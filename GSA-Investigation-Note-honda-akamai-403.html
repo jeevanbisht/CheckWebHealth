@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GSA Investigation Note — Akamai 403 on automobiles.honda.com</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#ffffff; --ink:#1b2733; --muted:#5b6b7b;
+    --line:#e1e6ec; --accent:#0a5ad6; --accent-soft:#eaf1fc;
+    --warn-bg:#fff6e6; --warn-line:#f0c36d; --warn-ink:#7a5400;
+    --code-bg:#0f1b2d; --code-ink:#d7e3f4;
+    --ok:#1a7f44; --bad:#c0392b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:900px;margin:32px auto;padding:0 20px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:34px 40px;box-shadow:0 1px 3px rgba(16,32,56,.06);}
+  header.doc{border-bottom:3px solid var(--accent);padding-bottom:16px;margin-bottom:24px;}
+  header.doc .kicker{font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:24px;margin:6px 0 14px;line-height:1.25;}
+  .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:6px 26px;font-size:13.5px;color:var(--muted);}
+  .meta b{color:var(--ink);font-weight:600;}
+  h2{font-size:17px;margin:30px 0 10px;padding-top:6px;border-top:1px solid var(--line);}
+  h2:first-of-type{border-top:none;}
+  h3{font-size:14.5px;margin:18px 0 8px;color:var(--ink);}
+  p{margin:10px 0;}
+  .sev{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;
+    font-weight:700;background:var(--warn-bg);color:var(--warn-ink);border:1px solid var(--warn-line);}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px;}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:var(--accent-soft);font-weight:600;}
+  tbody tr:nth-child(even){background:#fafbfd;}
+  code,kbd{background:#eef1f5;border:1px solid var(--line);border-radius:4px;
+    padding:1px 5px;font:13px/1.4 "SFMono-Regular",Consolas,Menlo,monospace;}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:14px 16px;
+    overflow:auto;font:13px/1.5 "SFMono-Regular",Consolas,Menlo,monospace;}
+  pre code{background:none;border:none;padding:0;color:inherit;}
+  .callout{background:var(--warn-bg);border:1px solid var(--warn-line);border-left:4px solid var(--warn-line);
+    border-radius:6px;padding:12px 16px;margin:14px 0;color:#5c4400;}
+  .quote{border-left:3px solid var(--accent);background:var(--accent-soft);
+    padding:10px 16px;border-radius:0 6px 6px 0;color:var(--ink);font-size:13.5px;}
+  .badok{color:var(--ok);font-weight:700;}
+  .badno{color:var(--bad);font-weight:700;}
+  .idgrid{display:grid;grid-template-columns:200px 1fr;gap:8px 16px;font-size:13.5px;
+    background:#fafbfd;border:1px solid var(--line);border-radius:8px;padding:16px;}
+  .idgrid b{color:var(--muted);font-weight:600;}
+  .idgrid span{font-family:"SFMono-Regular",Consolas,Menlo,monospace;}
+  footer.doc{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted);}
+  @media print{body{background:#fff}.card{border:none;box-shadow:none;padding:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+
+  <header class="doc">
+    <div class="kicker">Investigation Note · GSA Engineering Team</div>
+    <h1>Akamai &ldquo;Access Denied&rdquo; (HTTP 403) on <code>automobiles.honda.com</code> for GSA-tunneled users</h1>
+    <div class="meta">
+      <div><b>Date:</b> 2026-06-23</div>
+      <div><b>Reporter:</b> @jeevanbisht</div>
+      <div><b>Affected host:</b> automobiles.honda.com</div>
+      <div><b>Artifact:</b> automobiles.honda.com.har</div>
+      <div><b>Severity:</b> <span class="sev">Medium</span></div>
+      <div><b>Paths:</b> <code>/</code>, <code>/tools/build-and-price</code></div>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <p>Users on <b>Global Secure Access (GSA) Internet Access</b> receive an
+  <b>Akamai &ldquo;Access Denied&rdquo; (HTTP 403)</b> page when browsing
+  <code>https://automobiles.honda.com</code> (reproduced on the homepage <code>/</code>
+  and the <b>Build &amp; Price</b> flow <code>/tools/build-and-price</code>).</p>
+  <p>The block originates at <b>Akamai&rsquo;s edge (CDN/origin side), not at the GSA tunnel</b>.
+  GSA successfully forwards the request; Akamai <b>Bot Manager</b> rejects it. This is therefore a
+  <b>bot-detection / egress-reputation</b> interaction, not a GSA policy drop.</p>
+
+  <h2>2. Evidence from the HAR</h2>
+
+  <h3>2.1 Blocked requests</h3>
+  <table>
+    <thead><tr><th>Status</th><th>Method</th><th>URL</th><th>Server</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badno">403</span></td><td>GET</td><td><code>https://automobiles.honda.com/</code></td><td>AkamaiGHost</td></tr>
+      <tr><td><span class="badno">403</span></td><td>GET</td><td><code>https://automobiles.honda.com/akam-sw-policy.json</code></td><td>AkamaiGHost</td></tr>
+    </tbody>
+  </table>
+  <p>Response body = standard Akamai denial:</p>
+  <div class="quote">
+    Access Denied — You don&rsquo;t have permission to access &ldquo;http://automobiles.honda.com/&rdquo; on this server.<br>
+    Reference #18.d90c0317.1782244550.7f5af303<br>
+    https://errors.edgesuite.net/18.d90c0317.1782244550.7f5af303
+  </div>
+
+  <h3>2.2 Block served by Akamai (not GSA)</h3>
+  <table>
+    <tbody>
+      <tr><th>server</th><td><code>AkamaiGHost</code></td></tr>
+      <tr><th>akamai-grn</th><td><code>0.d90c0317.1782244550.7f5af303</code> &mdash; Akamai Global Request Number (use with Akamai/Honda support)</td></tr>
+      <tr><th>server-timing</th><td><code>cdn-cache; desc=HIT</code> &mdash; the denial itself was served from Akamai cache</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.3 Mechanism = Akamai Bot Manager</h3>
+  <ul>
+    <li>Request to <code>akam-sw-policy.json</code> + response header <code>x-akam-sw-version: 0.5.0</code> &rarr; Akamai bot-detection <b>service worker</b>.</li>
+    <li>mPulse telemetry beacon <code>s.go-mpulse.net/boomerang/&hellip;</code> returned <b>status&nbsp;0</b> (cancelled/blocked) &rarr; bot telemetry never completed.</li>
+  </ul>
+
+  <h3>2.4 Confirmation the traffic was GSA-tunneled</h3>
+  <ul>
+    <li><code>serverIPAddress</code> for <code>automobiles.honda.com</code> = <b>6.6.5.88</b> (and <code>6.6.5.89</code> for <code>cdn.fonts.net</code>).</li>
+    <li>These are <b>not</b> real Akamai public IPs (Akamai uses 23.x / 104.x / 2.16.x). <code>6.6.5.x</code> is a <b>GSA synthetic/tunnel destination IP</b>, confirming the FQDN was intercepted and tunneled by the GSA client.</li>
+  </ul>
+  <pre><code>Browser  →  GSA client (synthetic IP 6.6.5.88)  →  GSA egress  →  Akamai edge  →  403</code></pre>
+
+  <h2>3. Contributing factor observed in capture (to rule out)</h2>
+  <p>The captured request used a <b>mobile/emulated User-Agent</b> while running on a Windows desktop:</p>
+  <pre><code>user-agent: Mozilla/5.0 (Linux; Android 15; Pixel 9) ... Chrome/149 Mobile Safari/537.36
+sec-ch-ua-mobile: ?1
+sec-ch-ua-platform: "Android"</code></pre>
+  <div class="callout">
+    This indicates <b>DevTools device emulation was ON</b> during capture. A mobile UA over a desktop
+    TLS/HTTP2 fingerprint is an inconsistent-signal pattern that Akamai Bot Manager independently scores
+    as bot-like. <b>This must be eliminated as a variable</b> before attributing the block solely to GSA (see Action&nbsp;1).
+  </div>
+
+  <h2>4. Root-cause hypothesis</h2>
+  <p>Akamai Bot Manager scores requests on <b>egress-IP reputation + TLS/HTTP2 client fingerprint +
+  client-signal consistency</b>. When users egress via GSA&rsquo;s <b>shared cloud egress IPs</b>, Akamai is
+  likely classifying the traffic as <b>datacenter/bot</b> origin and returning 403. This is consistent with
+  the site working off-GSA but failing behind it.</p>
+
+  <h2>5. Recommended actions</h2>
+  <table>
+    <thead><tr><th>#</th><th>Owner</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Reporter</td><td>Re-capture with <b>DevTools emulation OFF</b> (genuine desktop Edge UA) to confirm the block persists independent of the spoofed mobile UA.</td></tr>
+      <tr><td>2</td><td>GSA Eng</td><td>Identify the <b>GSA egress IP/ASN</b> used for this session and check it against Akamai bot/datacenter reputation lists.</td></tr>
+      <tr><td>3</td><td>GSA Eng</td><td>Evaluate <b>dedicated/static egress IP</b> (better reputation) or <b>bypass/exclude <code>*.honda.com</code></b> from the Internet Access forwarding profile as a mitigation.</td></tr>
+      <tr><td>4</td><td>Honda/Akamai support</td><td>Using <b>akamai-grn <code>0.d90c0317.1782244550.7f5af303</code></b> / Reference <b>#18.d90c0317.1782244550.7f5af303</b>, request an <b>allowlist</b> for the GSA egress IP/ASN in Akamai Bot Manager.</td></tr>
+      <tr><td>5</td><td>GSA Eng</td><td>Assess whether GSA&rsquo;s TLS/HTTP2 handling alters the client fingerprint in a way that increases bot scoring.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>6. Key identifiers (for support tickets)</h2>
+  <div class="idgrid">
+    <b>Akamai GRN</b><span>0.d90c0317.1782244550.7f5af303</span>
+    <b>Edge reference #</b><span>18.d90c0317.1782244550.7f5af303</span>
+    <b>GSA synthetic dest IP</b><span>6.6.5.88</span>
+    <b>Timestamp</b><span>Tue, 23 Jun 2026 19:55:50 GMT</span>
+    <b>Affected host</b><span>automobiles.honda.com (/, /tools/build-and-price)</span>
+  </div>
+
+  <footer class="doc">
+    Prepared by @jeevanbisht · Source artifact: automobiles.honda.com.har · GSA Internet Access investigation
+  </footer>
+
+</div>
+</div>
+</body>
+</html>

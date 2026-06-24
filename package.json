@@ -1,0 +1,20 @@
+{
+  "name": "scenario-recorder",
+  "version": "1.0.0",
+  "description": "Capture a HAR file for a GSA-tunneled web transaction",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "capture": "node capture-har.js",
+    "setup": "playwright install chromium",
+    "probe": "node probe-catalog.mjs",
+    "report": "node render-catalog-html.mjs",
+    "all": "node probe-catalog.mjs && node render-catalog-html.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
