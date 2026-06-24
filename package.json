@@ -1,9 +1,29 @@
 {
-  "name": "scenario-recorder",
+  "name": "checkwebhealth",
   "version": "1.0.0",
   "description": "Probe a catalog of sites through a SASE/GSA tunnel to detect CDN/WAF bot-blocking and render an HTML report",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeevanbisht/CheckWebHealth.git"
+  },
+  "homepage": "https://github.com/jeevanbisht/CheckWebHealth#readme",
+  "bugs": {
+    "url": "https://github.com/jeevanbisht/CheckWebHealth/issues"
+  },
+  "keywords": [
+    "gsa",
+    "global-secure-access",
+    "sase",
+    "cdn",
+    "waf",
+    "bot-detection",
+    "akamai",
+    "cloudflare",
+    "playwright"
+  ],
   "scripts": {
     "setup": "playwright install chromium msedge",
     "sample": "node probe-sample.mjs",

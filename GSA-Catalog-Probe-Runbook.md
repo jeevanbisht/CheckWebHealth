@@ -27,7 +27,9 @@ sites that load on a direct connection but fail through GSA. **Those are the onl
 network is the cause** and are the actionable hand-off to experts.
 
 Output is a **single self-contained HTML report**, tabbed by category, with a **per-category
-summary** (block rate, vendor mix, Akamai count), an **overall summary**, and an **egress banner**.
+summary** (block rate, vendor mix), an **overall summary**, and an **egress banner**. The report is
+interactive: combinable verdict/vendor/status filters, click-to-sort columns, and an Excel export of
+the filtered view.
 
 > 🔑 The strongest single finding: a site whose `_abck` shows **passed** but is still denied →
 > the report labels this **`IP_REPUTATION`** — the block is **egress-IP reputation**, not browser
@@ -167,6 +169,6 @@ Edit `sites-catalog.mjs` down to the categories/hosts of interest, or temporaril
   `ERROR`/`OTHER`, not false blocks.
 - The probe defaults to **real Edge + light stealth** to reduce the "headless = bot" confound. For
   the highest fidelity on a contested case, add `PROBE_HEADED=1` (visible browser).
-- A **HAR is still the gold standard** for a single deep-dive (see the Playbook). This kit is for
-  **breadth** — finding *where else* the block reproduces — and for the **direct-vs-GSA delta**.
+- A **HAR is still the gold standard** for a single deep-dive. This kit is for **breadth** —
+  finding *where else* the block reproduces — and for the **direct-vs-GSA delta**.
 - `results-*.json` can contain cookies/edge IPs — treat as sensitive if shared.

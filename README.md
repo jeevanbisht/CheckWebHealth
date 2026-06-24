@@ -1,41 +1,53 @@
 # CheckWebHealth
 
-Test whether a network egress path — especially **Microsoft Global Secure Access (GSA)** —
-is blocked by CDN / WAF **bot-detection** (Akamai Bot Manager, Cloudflare, Imperva, etc.)
-across the web, then produce a shareable report.
+Diagnose whether a network egress path — especially **Microsoft Global Secure Access (GSA)** —
+is being blocked by CDN / WAF **bot-detection** (Akamai Bot Manager, Cloudflare, Imperva, AWS
+CloudFront/WAF, and others), and produce a shareable, evidence-grade report.
 
 Born from a real case: `automobiles.honda.com` returned an **Akamai Bot Manager 403 "Access
-Denied"** for GSA-tunneled users. This kit lets you check **where else** that reproduces.
+Denied"** for GSA-tunneled users. This kit answers the follow-up question objectively — **where
+else does this reproduce, and is the network actually the cause?** — across 2,500 sites.
+
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Playwright](https://img.shields.io/badge/playwright-Edge%20%2F%20Chromium-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## What's inside
+## Why this is defensible
 
-| Area | Files |
-|------|-------|
-| **Breadth probe** (2,500 sites, 50 categories) | `sites-catalog.mjs`, `probe-catalog.mjs`, `render-catalog-html.mjs` |
-| **Shared probe engine** | `probe-core.mjs` |
-| **Sample run** (10 categories) | `probe-sample.mjs` |
-| **Evidence re-screenshot pass** | `probe-evidence.mjs` |
-| **Docs** | `INSTALL.md`, `GSA-Catalog-Probe-Runbook.md` |
+A bare `403` from one vantage point proves nothing. This kit is built around the two signals that
+*do* hold up when escalated to a CDN/WAF vendor:
+
+1. **`NETWORK-CAUSED`** — the site loads `OK` on a **direct** connection but fails through **GSA**.
+   Run the same probe twice (off-tunnel baseline + on-tunnel test); the report diffs the two arms.
+   These are the only rows that prove the network path is the cause.
+2. **`IP_REPUTATION`** — the Akamai bot sensor cookie (`_abck`) is **passed** (browser fingerprint
+   accepted), yet the request is still denied ⇒ the block is driven by **egress-IP/ASN reputation**,
+   not the browser. Paired with the captured **egress IP + ASN** and the CDN **`Reference #`**, this
+   is a traceable hand-off the vendor can look up in their logs.
 
 ---
 
 ## How it works
 
-Drives **real Chromium** (JS enabled, genuine desktop fingerprint — no emulation) to each site
-and records, per site:
+Drives a **real browser — Microsoft Edge (`channel:msedge`) by default** with light anti-automation
+stealth (to remove the "headless = bot" confound) to each site, and records per site:
 
-- **Verdict** — `OK` · `BLOCKED` (403/429/444/503 / "Access Denied" body) · `CHALLENGE`
-  (`_abck` `~0~` or JS interstitial) · `ERROR`
-- **Vendor** — Akamai / Cloudflare / Imperva / AWS CloudFront-WAF / Fastly / F5 / Sucuri / …
-- **`_abck` state** — `passed` (`~-1~`) vs `challenged` (`~0~`)
+| Captured | Detail |
+|----------|--------|
+| **Verdict** | `OK` · `IP_REPUTATION` · `BLOCKED` · `HUMAN_CHALLENGE` · `BOT_CHALLENGE` · `ERROR` |
+| **Vendor** | Akamai / Cloudflare / Imperva / AWS CloudFront-WAF / Fastly / F5 BIG-IP / Vercel / Netlify / … |
+| **`_abck` state** | `passed` (`~-1~`) vs `challenged` (`~0~`) — the key Akamai Bot-Manager signal |
+| **HTTP status + WAF headers** | `server`, `akamai-grn`, `retry-after`, and vendor headers |
+| **Reference ID** | Akamai `Reference #` / Cloudflare `cf-ray` / AWS `x-amz-cf-id` — for vendor escalation |
+| **CDN edge IP / failure layer** | `edge:` IP that served the response; for errors, the failed `layer:` (DNS/TCP/TLS/TIMEOUT/HTTP) |
+| **Egress IP + ASN/org** | The public IP and ASN the request exited from (per arm) |
+| **Screenshot** | Captured at the moment of the block for every non-`OK` row (evidence that survives a retry) |
 
-> 🔑 Key signal: a site whose `_abck` is **passed** but still **BLOCKED** ⇒ the block is driven by
-> **egress-IP reputation**, not browser fingerprint (the Honda root cause).
-
-Output is a **self-contained HTML report**, tabbed by category, with per-category + overall
-summaries (block rate, vendor mix, Akamai count).
+The output is a **single self-contained HTML report**, tabbed by category, with per-category and
+overall summaries, an egress banner, combinable **verdict / vendor / status filters**,
+**click-to-sort** columns, and an **Excel export** of the filtered view.
 
 ---
 
@@ -43,22 +55,26 @@ summaries (block rate, vendor mix, Akamai count).
 
 ```bash
 npm install
-npm run setup          # downloads Chromium (playwright install chromium)
-npm run all            # probe 2,500 sites, then build the report (~20–40 min)
+npm run setup          # installs Microsoft Edge + Chromium browser binaries
 ```
 
-Open `akamai-probe-results/catalog/report-catalog.html`.
+Then run the **A/B method** — the same probe off-GSA (baseline) and on-GSA (test):
 
-Adjust concurrency with the `CONC` env var (default 20):
-
-```bash
-CONC=30 npm run probe   # macOS/Linux
-```
 ```powershell
-$env:CONC=10; npm run probe   # PowerShell
+$env:PROBE_ARM="direct"; npm run probe   # GSA OFF — baseline
+$env:PROBE_ARM="gsa";    npm run probe   # GSA ON  — test
+npm run report                           # merges both arms into the report
+Start-Process .\akamai-probe-results\catalog\report-catalog.html
 ```
 
-Full setup details: **[INSTALL.md](INSTALL.md)** · usage & interpretation:
+With only one arm present the report renders single-arm (no delta). For a fast smoke test, run
+`npm run sample` (10 categories).
+
+> **Concurrency defaults to `4` on purpose.** Hammering many CDN-fronted sites from one egress IP
+> itself trips rate/reputation limits and manufactures false blocks. Override with `CONC` only if you
+> understand the tradeoff: `$env:CONC=2; npm run probe`.
+
+Full setup: **[INSTALL.md](INSTALL.md)** · usage, env vars & interpreting results:
 **[GSA-Catalog-Probe-Runbook.md](GSA-Catalog-Probe-Runbook.md)**
 
 ---
@@ -67,25 +83,47 @@ Full setup details: **[INSTALL.md](INSTALL.md)** · usage & interpretation:
 
 | Script | Action |
 |--------|--------|
-| `npm run setup` | Install the Chromium + Edge browser binaries |
+| `npm run setup` | Install the Microsoft Edge + Chromium browser binaries |
 | `npm run sample` | Run a 10-category sample probe (with screenshots) |
-| `npm run probe` | Run the 2,500-site catalog probe |
-| `npm run evidence` | Re-screenshot non-OK rows of an existing run |
+| `npm run probe` | Run the full 2,500-site catalog probe (tag the arm via `PROBE_ARM`) |
+| `npm run evidence` | Re-screenshot the non-`OK` rows of an existing run |
 | `npm run report` | Build the tabbed HTML report from results |
 | `npm run all` | Probe + report |
 
 ---
 
-## Tips for a forensic match
+## Project layout
 
-- Use real Edge instead of bundled Chromium: add `channel: "msedge"` to `chromium.launch(...)`.
-- Run **off-GSA** once as a baseline, then **on-GSA**; any site `OK` off-GSA but `BLOCKED` on-GSA
-  is a true positive.
-- For a single deep dive, a **HAR** is the gold standard — see the Playbook.
+| File | Purpose |
+|------|---------|
+| `sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
+| `probe-core.mjs` | Shared probe engine: Edge launch + stealth, egress IP/ASN capture, classify, retry. |
+| `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` (+ legacy `results-catalog.json`). |
+| `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
+| `probe-evidence.mjs` | Re-screenshots the non-`OK` rows of an existing run (resilient + resumable). |
+| `render-catalog-html.mjs` | Renders the tabbed, interactive HTML report; merges arms into a delta. |
+
+Key environment variables (full list in the Runbook):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa`). |
+| `CONC` | `4` | Parallel browser contexts. Keep modest. |
+| `PROBE_CHANNEL` | `msedge` | Browser channel (`msedge` / `chrome` / `chromium`). |
+| `PROBE_HEADED` | unset | Set `1` for a headed (visible) run — best forensic fidelity. |
+| `SHOTS` | unset | Set `1` to screenshot every site (heavy for 2,500 sites). |
 
 ---
 
-## Security
+## Security & privacy
 
-Probe output and HAR captures can contain cookies / tokens. `.gitignore` excludes
-`har/`, `akamai-probe-results/`, and `node_modules/` so they are **never committed**.
+- Probe output (`results-*.json`) can contain cookies, edge IPs, and tokens. `.gitignore` excludes
+  `akamai-probe-results/`, `har/` / `*.har`, and `node_modules/` so they are **never committed**.
+- The report is self-contained and safe to email/share, but treat the raw `results-*.json` as
+  sensitive if it leaves the machine.
+
+---
+
+## License
+
+[MIT](LICENSE) © Microsoft / contributors.
