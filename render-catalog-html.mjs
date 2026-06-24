@@ -102,7 +102,7 @@ function deltaCell(r) {
 
 function rowTr(r, withCategory) {
   const d = dual ? deltaFor(r) : "";
-  return `<tr class="${VCLASS[r.verdict] || "other"}" data-verdict="${esc(r.verdict)}" data-vendor="${esc(r.vendor)}" data-delta="${esc(d)}">
+  return `<tr class="${VCLASS[r.verdict] || "other"}" data-verdict="${esc(r.verdict)}" data-vendor="${esc(r.vendor)}" data-status="${esc(r.status)}" data-delta="${esc(d)}">
     ${withCategory ? `<td class="small">${esc(r.category)}</td>` : ""}
     <td><span class="badge ${VCLASS[r.verdict] || "other"}">${esc(r.verdict)}</span></td>
     <td class="mono">${esc(r.status)}</td>
@@ -169,6 +169,15 @@ const categoryTabs = categories.map((c, i) => {
 }).join("");
 
 const allVendors = Object.entries(overall.vendors).sort((a, b) => b[1] - a[1]);
+const statusCounts = {};
+for (const r of results) statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
+const allStatuses = Object.keys(statusCounts).sort((a, b) => {
+  const na = parseInt(a, 10), nb = parseInt(b, 10);
+  const aNum = !isNaN(na), bNum = !isNaN(nb);
+  if (aNum && bNum) return na - nb;
+  if (aNum !== bNum) return aNum ? -1 : 1;
+  return String(a).localeCompare(String(b));
+});
 
 function egressLine(arm) {
   const m = arms[arm].meta || {};
@@ -203,6 +212,9 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .kpi-filter{cursor:pointer;text-align:left;appearance:none;-webkit-appearance:none;font:inherit;color:inherit}
   .kpi-filter.active,.vendor-chip.active{outline:2px solid var(--accent);outline-offset:1px}
   .vendbar{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 18px;font-size:12px;color:var(--mut)}
+  .statusbar{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:12px;color:var(--mut)}
+  .statusbar select{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 8px;font:inherit;font-size:12px;cursor:pointer}
+  .statusbar select:hover{border-color:var(--accent)}
   .vendor-chip{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:3px 9px;color:var(--ink);cursor:pointer;font-size:12px;appearance:none;-webkit-appearance:none;font:inherit}
   .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5;border-bottom:1px solid var(--line)}
   .tab{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 11px;cursor:pointer;font-size:12px}
@@ -253,6 +265,13 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <button class="kpi kpi-filter err" data-filter="verdict:ERROR"><div class="n">${overall.ERROR}</div><div class="l">Error</div></button>
   </div>
   <div class="vendbar">${allVendors.map(([k, v]) => `<button class="vendor-chip" data-filter="vendor:${esc(k)}">${esc(k)}: ${v}</button>`).join(" ")}</div>
+  <div class="statusbar">
+    <label for="statusFilter">Status:</label>
+    <select id="statusFilter">
+      <option value="">All (${results.length})</option>
+      ${allStatuses.map((s) => `<option value="${esc(s)}">${esc(s)} (${statusCounts[s]})</option>`).join("")}
+    </select>
+  </div>
   <div class="filter-state" id="filterState">Showing <b>all rows</b>. Click a verdict card and/or a vendor chip — they combine (e.g. OK + Akamai).</div>
   <div class="legend">
     <div><code>NETWORK-CAUSED</code> = loads OK on the <b>direct</b> baseline but fails through <b>GSA</b> — the actionable, network-attributable failures.</div>
@@ -272,14 +291,16 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   Source: probe-core.mjs · Reporter: @jeevanbisht</footer>
 </div>
 <script>
-  const activeFilters = { verdict: null, vendor: null, delta: null };
+  const activeFilters = { verdict: null, vendor: null, delta: null, status: null };
   const filterState = document.getElementById("filterState");
+  const statusSelect = document.getElementById("statusFilter");
   function setActiveButtons() {
     document.querySelectorAll(".kpi-filter,.vendor-chip").forEach(function(el){
       const parts = el.dataset.filter.split(":");
       const type = parts[0], value = parts.slice(1).join(":");
       el.classList.toggle("active", activeFilters[type] === value);
     });
+    if (statusSelect) statusSelect.value = activeFilters.status || "";
   }
   function rowMatches(row) {
     if (activeFilters.verdict !== null) {
@@ -287,6 +308,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       if (!ok) return false;
     }
     if (activeFilters.vendor !== null && row.dataset.vendor !== activeFilters.vendor) return false;
+    if (activeFilters.status !== null && row.dataset.status !== activeFilters.status) return false;
     if (activeFilters.delta !== null && row.dataset.delta !== activeFilters.delta) return false;
     return true;
   }
@@ -322,6 +344,12 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       setFilter(parts[0], parts.slice(1).join(":"));
     });
   });
+  if (statusSelect) {
+    statusSelect.addEventListener("change", function(){
+      activeFilters.status = statusSelect.value || null;
+      applyFilter();
+    });
+  }
   document.querySelectorAll("table thead th.sortable").forEach(function(th){
     th.addEventListener("click", function(){
       const table = th.closest("table");
