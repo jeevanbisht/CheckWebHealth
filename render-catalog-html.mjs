@@ -128,7 +128,7 @@ function sortRows(rows, withCategory) {
 
 const colspan = dual ? 8 : 7;
 function tableHead(withCategory) {
-  return `<thead><tr>${withCategory ? "<th>Category</th>" : ""}<th>Verdict</th><th>Status</th><th>Vendor</th><th>_abck</th><th>Reference</th><th>URL details / signals</th>${dual ? "<th>Direct vs GSA</th>" : ""}<th>Image</th></tr></thead>`;
+  return `<thead><tr>${withCategory ? `<th class="sortable">Category</th>` : ""}<th class="sortable">Verdict</th><th class="sortable">Status</th><th class="sortable">Vendor</th><th class="sortable">_abck</th><th class="sortable">Reference</th><th class="sortable">URL details / signals</th>${dual ? `<th class="sortable">Direct vs GSA</th>` : ""}<th>Image</th></tr></thead>`;
 }
 
 function kpiBar(s) {
@@ -214,6 +214,11 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:12px}
   th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
   th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);background:#0f141c}
+  th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+  th.sortable:hover{color:var(--ink)}
+  th.sortable::after{content:"\\2195";opacity:.35;margin-left:5px;font-size:10px}
+  th.sortable.asc::after{content:"\\2191";opacity:1}
+  th.sortable.desc::after{content:"\\2193";opacity:1}
   td.refcell{max-width:210px;overflow-wrap:anywhere;word-break:break-all}
   td.detailcell{max-width:420px;overflow-wrap:anywhere}
   td.detailcell .mono{overflow-wrap:anywhere;word-break:break-all}
@@ -315,6 +320,30 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       e.preventDefault();
       const parts = el.dataset.filter.split(":");
       setFilter(parts[0], parts.slice(1).join(":"));
+    });
+  });
+  document.querySelectorAll("table thead th.sortable").forEach(function(th){
+    th.addEventListener("click", function(){
+      const table = th.closest("table");
+      const headRow = th.parentNode;
+      const idx = Array.prototype.indexOf.call(headRow.children, th);
+      const asc = !th.classList.contains("asc");
+      headRow.querySelectorAll("th").forEach(function(h){ h.classList.remove("asc","desc"); });
+      th.classList.add(asc ? "asc" : "desc");
+      const tbody = table.querySelector("tbody");
+      const rows = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+      function cellVal(row){ const cell = row.children[idx]; return cell ? cell.textContent.trim() : ""; }
+      const numeric = rows.every(function(r){ var v = cellVal(r).replace(/[^0-9.\\-]/g,""); return v === "" || !isNaN(parseFloat(v)); });
+      rows.sort(function(a,b){
+        var va = cellVal(a), vb = cellVal(b);
+        if (numeric) {
+          var na = parseFloat(va.replace(/[^0-9.\\-]/g,"")); var nb = parseFloat(vb.replace(/[^0-9.\\-]/g,""));
+          if (isNaN(na)) na = -Infinity; if (isNaN(nb)) nb = -Infinity;
+          return asc ? na - nb : nb - na;
+        }
+        return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+      rows.forEach(function(r){ tbody.appendChild(r); });
     });
   });
   applyFilter();
