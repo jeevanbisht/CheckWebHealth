@@ -246,7 +246,6 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <button class="kpi kpi-filter challenge" data-filter="verdict:HUMAN_CHALLENGE"><div class="n">${overall.HUMAN_CHALLENGE}</div><div class="l">Human challenge</div></button>
     <button class="kpi kpi-filter challenge" data-filter="verdict:BOT_CHALLENGE"><div class="n">${overall.BOT_CHALLENGE}</div><div class="l">Bot challenge</div></button>
     <button class="kpi kpi-filter err" data-filter="verdict:ERROR"><div class="n">${overall.ERROR}</div><div class="l">Error</div></button>
-    <button class="kpi kpi-filter" data-filter="vendor:Akamai"><div class="n">${overall.akamai}</div><div class="l">Akamai (${overall.akamaiBlockRate}% blkd)</div></button>
   </div>
   <div class="vendbar">${allVendors.map(([k, v]) => `<button class="vendor-chip" data-filter="vendor:${esc(k)}">${esc(k)}: ${v}</button>`).join(" ")}</div>
   <div class="filter-state" id="filterState">Showing <b>all rows</b>. Click a KPI card or vendor chip to filter.</div>
