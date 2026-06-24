@@ -108,8 +108,8 @@ function rowTr(r, withCategory) {
     <td class="mono">${esc(r.status)}</td>
     <td>${esc(r.vendor)}</td>
     <td class="mono small">${esc(r.abck)}</td>
-    <td class="mono small">${esc(r.reference || "—")}</td>
-    <td>${detailCell(r)}</td>
+    <td class="refcell mono small">${esc(r.reference || "—")}</td>
+    <td class="detailcell">${detailCell(r)}</td>
     ${deltaCell(r)}
     <td>${thumb(r)}</td>
   </tr>`;
@@ -214,6 +214,9 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:12px}
   th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
   th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);background:#0f141c}
+  td.refcell{max-width:210px;overflow-wrap:anywhere;word-break:break-all}
+  td.detailcell{max-width:420px;overflow-wrap:anywhere}
+  td.detailcell .mono{overflow-wrap:anywhere;word-break:break-all}
   tr.blocked{background:rgba(255,92,92,.06)}tr.challenge{background:rgba(255,176,32,.06)}tr.iprep{background:rgba(255,140,66,.08)}
   .mono{font-family:ui-monospace,Consolas,monospace}.small{font-size:12px;color:var(--mut)}
   .tag{display:inline-block;background:#111723;border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px;color:var(--mut);font-family:ui-monospace,Consolas,monospace}
