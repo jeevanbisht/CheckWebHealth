@@ -254,7 +254,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <div><code>HUMAN_CHALLENGE</code> = visible captcha / “verify you are human” interstitial.</div>
     <div><code>BOT_CHALLENGE</code> = JS/sensor challenge state (<code>_abck challenged</code> / Cloudflare cf-chl).</div>
     <div><code>edge:</code> = CDN edge IP that served the response · <code>layer:</code> = failed network layer (DNS/TCP/TLS/TIMEOUT/HTTP) for errors · <code>retry-after:</code> = throttle hint.</div>
-    <div><code>Reference</code> = Akamai reference ID / <code>errors.edgesuite.net</code> token — hand this to Akamai support to trace the deny.</div>
+    <div><code>Reference</code> = CDN/WAF trace ID to hand to support — Akamai <code>Reference #</code>/<code>errors.edgesuite.net</code>, Cloudflare <code>cf-ray</code>, or AWS CloudFront <code>x-amz-cf-id</code> (shown on failed rows).</div>
   </div>
 
   <div class="tabs"><button class="tab active" data-tab="all">All Categories <span class="tabcount ${(dual ? overall.networkCaused : 0) > 0 ? "warn" : ""}">${dual ? overall.networkCaused : BLOCKish.reduce((a, v) => a + (overall[v] || 0), 0)}/${overall.total}</span></button>${categoryTabs}</div>

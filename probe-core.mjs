@@ -79,13 +79,22 @@ export function slugify(value) {
     .slice(0, 120);
 }
 
-export function extractReference(bodyText) {
+// Build the per-row trace reference handed to CDN/WAF support.
+//   * Akamai  — "Reference #..." / errors.edgesuite.net token from the block body
+//   * Cloudflare — cf-ray header (e.g. cf-ray=a10975bdb8a9efe7-IAD)
+//   * AWS CloudFront/WAF — x-amz-cf-id header
+// Header IDs are included only when requested (failed rows), so OK rows stay clean.
+export function extractReference(bodyText, headers = {}, includeHeaderIds = false) {
   const text = bodyText || "";
   const refMatch = text.match(/Reference\s*#([^\s<]+)/i);
   const urlMatch = text.match(/https:\/\/errors\.edgesuite\.net\/([^\s<]+)/i);
   const parts = [];
   if (refMatch) parts.push("Reference #" + refMatch[1]);
   if (urlMatch) parts.push("errors.edgesuite.net/" + urlMatch[1]);
+  if (includeHeaderIds) {
+    if (headers["cf-ray"]) parts.push("cf-ray=" + headers["cf-ray"]);
+    if (headers["x-amz-cf-id"]) parts.push("x-amz-cf-id=" + headers["x-amz-cf-id"]);
+  }
   return parts.join(" | ");
 }
 
@@ -319,8 +328,8 @@ export async function probeOne(ctx, task, opts = {}) {
     try { r.title = (await page.title()).slice(0, 80); } catch {}
     try { r.finalUrl = page.url(); } catch {}
     r.redirected = r.finalUrl !== r.probeUrl;
-    r.reference = extractReference(body);
     r.verdict = classify(r.status, body, r.abck, r.vendor);
+    r.reference = extractReference(body, headers, r.verdict !== "OK");
     r.retryRecovered = r.evidenceShots.length > 0 && r.verdict === "OK";
     // Final screenshot: all rows in "all" mode; only non-OK rows in "fail" mode.
     if (shotMode === "all" || (shotMode === "fail" && r.verdict !== "OK")) {
