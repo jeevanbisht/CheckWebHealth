@@ -20,7 +20,8 @@ const OUT_DIR = join("akamai-probe-results", "catalog");
 const SHOT_DIR = join(OUT_DIR, "shots");
 mkdirSync(SHOT_DIR, { recursive: true });
 
-const SHOTS = process.env.SHOTS === "1"; // screenshots are heavy for 2,500 sites
+const SHOTS = process.env.SHOTS === "1"; // "1" = screenshot every site; default = only failures
+const SHOT_MODE = SHOTS ? "all" : "fail";
 
 const tasks = [];
 for (const [category, hosts] of Object.entries(CATALOG))
@@ -53,7 +54,7 @@ async function worker(wi) {
   while (true) {
     const i = next++;
     if (i >= tasks.length) break;
-    results[i] = await probeOne(ctx, tasks[i], { arm: ARM, screenshot: SHOTS, outDir: OUT_DIR, shotDir: SHOT_DIR });
+    results[i] = await probeOne(ctx, tasks[i], { arm: ARM, shotMode: SHOT_MODE, outDir: OUT_DIR, shotDir: SHOT_DIR });
     done++;
     await new Promise((res) => setTimeout(res, 200 + Math.floor(Math.random() * 300))); // jitter spacing
     if (done % 25 === 0 || done === tasks.length) {

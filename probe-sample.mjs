@@ -46,7 +46,7 @@ console.log(`Egress: ${egress.ip || "?"} ${egress.org || ""} (${egress.source})`
 
 const results = [];
 for (const task of tasks) {
-  const r = await probeOne(ctx, task, { arm: ARM, screenshot: true, outDir: OUT_DIR, shotDir: SHOT_DIR });
+  const r = await probeOne(ctx, task, { arm: ARM, shotMode: "all", outDir: OUT_DIR, shotDir: SHOT_DIR });
   results.push(r);
   console.log(`${r.verdict.padEnd(14)} ${String(r.status).padEnd(5)} ${r.vendor.padEnd(18)} ${r.edgeIp.padEnd(15)} ${r.url}`);
   await new Promise((res) => setTimeout(res, 300 + Math.floor(rand() * 400)));

@@ -12,6 +12,8 @@
 //   * Retry transient 429/503 once so rate-limits do not masquerade as hard
 //     blocks; keep concurrency low to avoid self-induced throttling.
 import { chromium } from "playwright";
+import { mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 
 export const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -196,10 +198,17 @@ function buildRedirectChain(resp) {
   }
 }
 
-// Probe a single host. opts: { settleMs, navTimeout, screenshot(boolean), shotDir, outDir, arm }
+// Probe a single host.
+// opts: { settleMs, navTimeout, shotMode ("all"|"fail"|"none"), screenshot(bool, legacy=all),
+//         shotDir, outDir, arm }
+// Screenshots are written to <outDir>/shots/<category>/<verdict>/<host>.png so the
+// catalog is organised by category + state. A block screenshot is captured even
+// before a transient (429/503) retry, so a retry that clears the block cannot
+// erase the evidence.
 export async function probeOne(ctx, task, opts = {}) {
   const settleMs = opts.settleMs ?? 2500;
   const navTimeout = opts.navTimeout ?? 25000;
+  const shotMode = opts.shotMode || (opts.screenshot ? "all" : "none");
   const r = {
     arm: opts.arm || "gsa",
     category: task.category,
@@ -208,6 +217,7 @@ export async function probeOne(ctx, task, opts = {}) {
     probeUrl: "https://" + task.host,
     finalUrl: "https://" + task.host,
     status: null,
+    firstStatus: null,
     server: "-",
     vendor: "-",
     abck: "no-_abck",
@@ -218,13 +228,38 @@ export async function probeOne(ctx, task, opts = {}) {
     redirectChain: [],
     retryAfter: "",
     attempts: 0,
+    retryRecovered: false,
     errorLayer: "",
     verdict: "ERROR",
     title: "",
     screenshot: "",
+    evidenceShots: [],
     redirected: false,
   };
-  const page = await ctx.newPage();
+  let page;
+  try {
+    page = await ctx.newPage();
+  } catch (e) {
+    // Context/browser is dead — surface a typed error so the caller can relaunch.
+    r.status = "ERR";
+    r.verdict = "ERROR";
+    r.errorLayer = "BROWSER";
+    r.title = (e.message || "").split("\n")[0].slice(0, 80);
+    r.browserDead = true;
+    return r;
+  }
+  // Save a screenshot under shots/<category>/<state>/<host><suffix>.png; returns rel path.
+  async function takeShot(state, suffix) {
+    if (!opts.outDir) return "";
+    const rel = join("shots", slugify(task.category), state, slugify(task.host) + (suffix || "") + ".png");
+    try {
+      mkdirSync(dirname(join(opts.outDir, rel)), { recursive: true });
+      await page.screenshot({ path: join(opts.outDir, rel), fullPage: false });
+      return rel;
+    } catch {
+      return "";
+    }
+  }
   try {
     let resp = null;
     const maxAttempts = 2;
@@ -251,7 +286,14 @@ export async function probeOne(ctx, task, opts = {}) {
       }
       // Retry only transient throttling responses; hard blocks are not retried.
       const st = resp ? resp.status() : null;
+      if (r.firstStatus === null) r.firstStatus = st;
       if (TRANSIENT_STATUS.includes(st) && attempt < maxAttempts) {
+        // Capture the block NOW — before the retry potentially makes it vanish.
+        if (shotMode !== "none") {
+          await page.waitForTimeout(400);
+          const shot = await takeShot("BLOCKED", "-attempt" + attempt + "-" + st);
+          if (shot) r.evidenceShots.push(shot);
+        }
         await page.waitForTimeout(1200 * attempt);
         continue;
       }
@@ -261,6 +303,7 @@ export async function probeOne(ctx, task, opts = {}) {
     await page.waitForTimeout(settleMs);
     const headers = resp ? resp.headers() : {};
     r.status = resp ? resp.status() : null;
+    if (r.firstStatus === null) r.firstStatus = r.status;
     r.server = headers["server"] || "-";
     r.grn = headers["akamai-grn"] || "-";
     r.retryAfter = headers["retry-after"] || "";
@@ -278,16 +321,20 @@ export async function probeOne(ctx, task, opts = {}) {
     r.redirected = r.finalUrl !== r.probeUrl;
     r.reference = extractReference(body);
     r.verdict = classify(r.status, body, r.abck, r.vendor);
-    if (opts.screenshot && opts.outDir && opts.shotDir) {
-      const { join } = await import("node:path");
-      r.screenshot = join("shots", slugify(task.category) + "-" + slugify(task.host) + ".png");
-      await page.screenshot({ path: join(opts.outDir, r.screenshot), fullPage: false });
+    r.retryRecovered = r.evidenceShots.length > 0 && r.verdict === "OK";
+    // Final screenshot: all rows in "all" mode; only non-OK rows in "fail" mode.
+    if (shotMode === "all" || (shotMode === "fail" && r.verdict !== "OK")) {
+      r.screenshot = await takeShot(r.verdict, "");
+    } else if (r.evidenceShots.length) {
+      // Recovered after a transient block — keep the block image as the row's shot.
+      r.screenshot = r.evidenceShots[0];
     }
   } catch (e) {
     r.status = "ERR";
     r.verdict = "ERROR";
     if (!r.errorLayer) r.errorLayer = errorLayer(e.message);
     r.title = (e.message || "").split("\n")[0].slice(0, 80);
+    if (shotMode !== "none") r.screenshot = await takeShot("ERROR", "");
   } finally {
     await page.close().catch(() => {});
   }

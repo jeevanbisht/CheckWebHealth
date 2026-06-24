@@ -78,7 +78,9 @@ function detailCell(r) {
   const layer = r.errorLayer ? ` <span class="tag">layer:${esc(r.errorLayer)}</span>` : "";
   const edge = r.edgeIp && r.edgeIp !== "-" ? ` <span class="tag">edge:${esc(r.edgeIp)}</span>` : "";
   const retry = r.retryAfter ? ` <span class="tag">retry-after:${esc(r.retryAfter)}</span>` : "";
-  return `<a href="${esc(r.url)}" target="_blank">${esc(r.host)}</a>${edge}${layer}${retry}
+  const recovered = r.retryRecovered ? ` <span class="tag" style="color:var(--challenge)">transient: ${esc(r.firstStatus)}→${esc(r.status)} (recovered on retry — see evidence shot)</span>` : "";
+  const recheck = r.recheckVerdict && r.recheckVerdict !== r.verdict ? ` <span class="tag">re-checked: ${esc(r.recheckVerdict)} (${esc(r.recheckStatus)})</span>` : "";
+  return `<a href="${esc(r.url)}" target="_blank">${esc(r.host)}</a>${edge}${layer}${retry}${recovered}${recheck}
     <div class="small">probe <b>${probeMark}</b>: <span class="mono">${esc(r.probeUrl || r.url)}</span></div>
     <div class="small">final <b>${finalMark}</b>: <span class="mono">${esc(r.finalUrl || r.url)}</span>${r.redirected ? " <b>(redirected)</b>" : ""}</div>
     ${waf ? `<div class="small mono">${waf}</div>` : ""}

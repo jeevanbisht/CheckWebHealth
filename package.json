@@ -9,6 +9,7 @@
     "setup": "playwright install chromium msedge",
     "sample": "node probe-sample.mjs",
     "probe": "node probe-catalog.mjs",
+    "evidence": "node probe-evidence.mjs",
     "report": "node render-catalog-html.mjs",
     "all": "node probe-catalog.mjs && node render-catalog-html.mjs"
   },

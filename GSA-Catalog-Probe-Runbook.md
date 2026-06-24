@@ -48,8 +48,14 @@ summary** (block rate, vendor mix, Akamai count), an **overall summary**, and an
 | `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` + `results-catalog.json`. |
 | `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
 | `render-catalog-html.mjs` | Renders the tabbed HTML report; merges arms into a delta. |
+| `probe-evidence.mjs` | Re-screenshots the non-OK rows of an existing run (for runs done without shots). |
 
 Copy them to the target machine (keep them in the **same folder**).
+
+> **Screenshots = evidence.** The catalog probe captures a screenshot of every **non-OK** result
+> at the moment of the block (including *before* a transient 429/503 retry, so a retry that clears
+> the block cannot erase the proof). Shots are organised as
+> `shots/<category>/<verdict>/<host>.png`. Set `SHOTS=1` to screenshot every site (heavy).
 
 ---
 
