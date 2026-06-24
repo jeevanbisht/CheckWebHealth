@@ -61,11 +61,12 @@ From the kit folder:
 
 ```powershell
 npm install
-npm run setup        # downloads the Chromium browser binary (~150 MB)
+npm run setup        # installs Microsoft Edge + Chromium browser binaries
 ```
 
 - `npm install` pulls the `playwright` package (from `package.json`).
-- `npm run setup` runs `playwright install chromium` to fetch the actual browser.
+- `npm run setup` runs `playwright install chromium msedge` to fetch the browsers. The probe uses
+  **Microsoft Edge** (`channel:msedge`) by default and falls back to bundled Chromium.
 
 ### Linux only — system libraries
 Chromium needs shared libs. If `npm run setup` warns about missing deps:
@@ -86,32 +87,34 @@ node -e "import('./sites-catalog.mjs').then(m=>console.log('catalog OK:', Object
 
 Expected: `catalog OK: 50 categories, 2500 sites`
 
-Quick smoke test (probes just a few sites, ~30 s) — optional:
+Quick smoke test (10-category sample, ~1 min) — optional:
 
 ```powershell
-node -e "process.env.CONC=4" ; node probe-catalog.mjs
+$env:PROBE_ARM="gsa"; npm run sample
 ```
-(Ctrl+C after the first progress line confirms it launches Chromium and navigates.)
+Confirms the browser launches, captures the egress IP, and writes results.
 
 ---
 
-## 5. Run
+## 5. Run — A/B (direct baseline vs GSA)
+
+Run the **same probe twice**, once off-GSA and once on-GSA; the report diffs them.
 
 ```powershell
-npm run probe        # ~20–40 min for 2,500 sites @ concurrency 20
-npm run report       # builds the tabbed HTML report
+$env:PROBE_ARM="direct"; npm run probe   # GSA OFF — baseline
+$env:PROBE_ARM="gsa";    npm run probe   # GSA ON  — test
+npm run report                           # merges both arms, builds HTML
 ```
 
-Or both at once:
-
-```powershell
-npm run all
-```
+Concurrency defaults to **4** (keep it modest — high concurrency from one egress IP manufactures
+false rate-limit blocks). A quick 10-category smoke test: `npm run sample`.
 
 Outputs land in:
 
 ```
-akamai-probe-results/catalog/results-catalog.json   # raw data
+akamai-probe-results/catalog/results-direct.json    # baseline arm
+akamai-probe-results/catalog/results-gsa.json       # test arm
+akamai-probe-results/catalog/results-catalog.json   # last arm (legacy single-arm view)
 akamai-probe-results/catalog/report-catalog.html    # open in a browser
 ```
 
@@ -126,14 +129,12 @@ open ./akamai-probe-results/catalog/report-catalog.html
 xdg-open ./akamai-probe-results/catalog/report-catalog.html
 ```
 
-### Adjust concurrency
+### Adjust concurrency (keep it low)
+High concurrency from one egress IP looks like a scraper and triggers false rate-limit blocks. The
+default is 4 for trustworthy results.
 ```powershell
 # PowerShell
-$env:CONC=10; npm run probe
-```
-```bash
-# macOS/Linux
-CONC=30 npm run probe
+$env:CONC=2; npm run probe
 ```
 
 ---
@@ -144,11 +145,12 @@ CONC=30 npm run probe
 |---------|-----|
 | `node: command not found` | Reopen terminal after install; ensure Node is on `PATH`. |
 | `Cannot find module 'playwright'` | Run `npm install` in the kit folder. |
-| `browserType.launch: Executable doesn't exist` | Run `npm run setup` (i.e. `playwright install chromium`). |
-| Linux: launch fails on missing `.so` libs | `sudo npx playwright install-deps chromium`. |
+| `browserType.launch: Executable doesn't exist` | Run `npm run setup` (`playwright install chromium msedge`). |
+| Linux: launch fails on missing `.so` libs | `sudo npx playwright install-deps`. |
 | Corporate proxy blocks the browser download | Set `HTTPS_PROXY`/`HTTP_PROXY` env vars, or pre-stage the Playwright browsers cache. |
-| Many `ERROR` rows | Network/DNS or timeout — raise `NAV_TIMEOUT` in `probe-catalog.mjs`, re-run. |
-| High RAM / machine struggles | Lower concurrency: `CONC=8`. |
+| Many `ERROR` rows | Check the `layer:` tag in the report (DNS/TLS/TCP = network path, not WAF). Raise `navTimeout` in `probe-core.mjs`, re-run. |
+| High RAM / machine struggles | Lower concurrency: `CONC=2`. |
+| Edge not found | `npm run setup`, or set `PROBE_CHANNEL=chromium` to use bundled Chromium. |
 
 ---
 

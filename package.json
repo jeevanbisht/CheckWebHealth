@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "capture": "node capture-har.js",
-    "setup": "playwright install chromium",
+    "setup": "playwright install chromium msedge",
+    "sample": "node probe-sample.mjs",
     "probe": "node probe-catalog.mjs",
     "report": "node render-catalog-html.mjs",
     "all": "node probe-catalog.mjs && node render-catalog-html.mjs"

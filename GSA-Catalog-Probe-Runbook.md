@@ -11,21 +11,31 @@ across **2,500 sites in 50 categories**.
 
 ## What it does
 
-Drives **real Chromium** (JS enabled, genuine desktop fingerprint — *no emulation*) to each
-site, then records per site:
+Drives a **real browser — Microsoft Edge (`channel:msedge`) by default**, with light
+anti-automation stealth — to each site, then records per site:
 
-- **Verdict** — `OK` · `BLOCKED` (403/429/444/503 or "Access Denied" body) · `CHALLENGE`
-  (`_abck` stuck at `~0~`, or a JS interstitial) · `ERROR` (navigation failed/timeout)
-- **HTTP status**, `server` header, `akamai-grn`
+- **Verdict** — `OK` · `IP_REPUTATION` (bot sensor passed `_abck`, yet still denied ⇒ egress-IP/ASN
+  block) · `BLOCKED` (401/403/429/444/451/503 or "Access Denied" body) · `HUMAN_CHALLENGE`
+  (captcha/interstitial) · `BOT_CHALLENGE` (`_abck` `~0~` / Cloudflare cf-chl) · `ERROR` (nav failed)
+- **HTTP status**, `server` header, `akamai-grn`, **`retry-after`**, and key **WAF headers**
+- **CDN edge IP** that served the response (`edge:`) and, for errors, the **failed network layer**
+  (`layer:` DNS / TCP / TLS / TIMEOUT / HTTP)
 - **Detected vendor** — Akamai / Cloudflare / Imperva / AWS CloudFront-WAF / Fastly / F5 BIG-IP /
   Sucuri / Vercel / Netlify / Google / Microsoft-Azure / Other / Unknown
 - **`_abck` state** — `passed` (`~-1~`) vs `challenged` (`~0~`) — the key Akamai Bot-Manager signal
 
-Output is a **single self-contained HTML report**, tabbed by category, with a **per-category
-summary** (block rate, vendor mix, Akamai count) and an **overall summary**.
+Each run is tagged with an **arm** (`direct` or `gsa`) and records the **egress public IP + ASN/org**.
+Run both arms and the report computes a per-site **delta**, surfacing **`NETWORK-CAUSED`** rows —
+sites that load on a direct connection but fail through GSA. **Those are the only rows that prove the
+network is the cause** and are the actionable hand-off to experts.
 
-> 🔑 The strongest finding to look for: a site whose `_abck` shows **passed** but still returns
-> **BLOCKED** → the block is **egress-IP reputation**, not browser fingerprint (the Honda root cause).
+Output is a **single self-contained HTML report**, tabbed by category, with a **per-category
+summary** (block rate, vendor mix, Akamai count), an **overall summary**, and an **egress banner**.
+
+> 🔑 The strongest single finding: a site whose `_abck` shows **passed** but is still denied →
+> the report labels this **`IP_REPUTATION`** — the block is **egress-IP reputation**, not browser
+> fingerprint (the Honda root cause). Cross-referenced with **`NETWORK-CAUSED`** (OK direct / fail
+> GSA), that is a defensible, actionable escalation.
 
 ---
 
@@ -34,10 +44,12 @@ summary** (block rate, vendor mix, Akamai count) and an **overall summary**.
 | File | Purpose |
 |------|---------|
 | `sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
-| `probe-catalog.mjs` | The probe. Writes `akamai-probe-results/catalog/results-catalog.json`. |
-| `render-catalog-html.mjs` | Renders the tabbed HTML report from that JSON. |
+| `probe-core.mjs` | Shared probe engine (Edge launch, stealth, egress capture, classify). |
+| `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` + `results-catalog.json`. |
+| `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
+| `render-catalog-html.mjs` | Renders the tabbed HTML report; merges arms into a delta. |
 
-Copy all three to the target machine (keep them in the **same folder**).
+Copy them to the target machine (keep them in the **same folder**).
 
 ---
 
@@ -48,55 +60,65 @@ Copy all three to the target machine (keep them in the **same folder**).
 
 ```powershell
 # in the kit folder
-npm init -y                      # only if no package.json yet
+npm init -y                          # only if no package.json yet
 npm install playwright
-npx playwright install chromium  # downloads the browser binary (~150 MB)
+npx playwright install msedge        # installs Microsoft Edge channel (default browser)
+npx playwright install chromium      # fallback browser binary (~150 MB)
 ```
 
 > The scripts are ESM (`.mjs`) — run them directly with `node`, no build step.
 
 ---
 
-## Run it
+## Run it — the A/B method (do both arms)
 
-### 1) Probe (the long step)
+The whole point is to **compare the same probe with GSA off vs on**. A bare 403 from one vantage
+point proves nothing; only `OK direct → fail on GSA` is evidence.
 
-```powershell
-node probe-catalog.mjs
-```
-
-- Default concurrency = **20** parallel browser contexts. Override with the `CONC` env var:
+### 1) Baseline arm — **GSA disabled** (direct internet)
 
 ```powershell
-# PowerShell
-$env:CONC=10; node probe-catalog.mjs
+$env:PROBE_ARM="direct"; node probe-catalog.mjs
 ```
-```bash
-# macOS/Linux
-CONC=30 node probe-catalog.mjs
+Writes `results-direct.json` (tagged with the direct egress IP/ASN).
+
+### 2) Test arm — **GSA enabled** (through the tunnel)
+
+```powershell
+$env:PROBE_ARM="gsa"; node probe-catalog.mjs
 ```
+Writes `results-gsa.json` (tagged with the GSA egress IP/ASN).
 
-- Expect **~20–40 min** for 2,500 sites at concurrency 20 (depends on network/CPU).
-- Progress prints every 50 sites; results are **checkpointed to JSON** as it goes, so a crash
-  mid-run still leaves partial data you can render.
-- Output: `akamai-probe-results/catalog/results-catalog.json`
+> Run both arms from the **same machine, back-to-back**, so the only variable is the network path.
+> Concurrency defaults to **4** on purpose — hammering many CDN-fronted sites from one egress IP
+> itself trips rate/reputation limits and manufactures false blocks. Override with `CONC` only if
+> you understand the tradeoff. Expect longer wall-clock than the old cc=20 default; that is intended.
 
-> **Run it behind GSA** to get the test result. Optionally run once **off-GSA** first and rename
-> the JSON (e.g., `results-baseline.json`) to compare — any site `OK` off-GSA but `BLOCKED`
-> on-GSA is a true positive.
+### Env vars
 
-### 2) Render the report
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa`). |
+| `CONC` | `4` | Parallel contexts (catalog probe). Keep modest. |
+| `PROBE_CHANNEL` | `msedge` | Browser channel (`msedge` / `chrome` / `chromium`). Falls back to bundled Chromium. |
+| `PROBE_HEADED` | unset | Set `1` for a headed (visible) run — best forensic fidelity. |
+| `SHOTS` | unset | Set `1` to capture per-site screenshots (heavy for 2,500 sites). |
+
+### 3) Render the report (merges both arms)
 
 ```powershell
 node render-catalog-html.mjs
+Start-Process .\akamai-probe-results\catalog\report-catalog.html
 ```
 
-- Output: `akamai-probe-results/catalog/report-catalog.html`
-- Open it in any browser (double-click). It's fully self-contained — safe to email/share.
+The report auto-detects `results-direct.json` + `results-gsa.json`, adds a **Direct vs GSA** column,
+and a **NETWORK-CAUSED** KPI/filter. With only one arm present it renders single-arm (no delta).
+Fully self-contained — safe to email/share.
+
+### Quick sample (10 categories) for a smoke test
 
 ```powershell
-# open on Windows
-Start-Process .\akamai-probe-results\catalog\report-catalog.html
+$env:PROBE_ARM="gsa"; node probe-sample.mjs; node render-catalog-html.mjs
 ```
 
 ---
@@ -105,24 +127,30 @@ Start-Process .\akamai-probe-results\catalog\report-catalog.html
 
 | Setting | Where | Notes |
 |---------|-------|-------|
-| Concurrency | `CONC` env var | Lower (8–10) on limited RAM; higher (30) on a strong box. |
-| Per-site timeout | `NAV_TIMEOUT` in `probe-catalog.mjs` | Default 25 s. |
-| Settle delay | `SETTLE_MS` | Default 1.5 s — lets Akamai's sensor set `_abck`. |
+| Arm label | `PROBE_ARM` env | `direct` (baseline) vs `gsa` (test). |
+| Concurrency | `CONC` env var | Default 4. Keep modest to avoid self-induced throttling. |
+| Browser channel | `PROBE_CHANNEL` env | `msedge` (default) / `chrome` / `chromium`. |
+| Headed run | `PROBE_HEADED=1` | Visible browser — best forensic fidelity, rules out headless confound. |
+| Per-site timeout | `navTimeout` in `probe-core.mjs` | Default 25 s. |
+| Settle delay | `settleMs` in `probe-core.mjs` | Default 2.5 s — lets the bot sensor set `_abck` / a challenge resolve. |
+| Retry | built into `probe-core.mjs` | Transient 429/503 retried once before being recorded. |
 | Sites / categories | `sites-catalog.mjs` | Edit the `CATALOG` object freely. |
-| Headed (watch live) | `chromium.launch({ headless: true })` → `false` | For debugging only. |
-| Use real Edge | add `channel: "msedge"` to `chromium.launch(...)` | Matches an Edge-based repro. |
 
 ---
 
 ## Interpreting results
 
-1. **Overall block rate** + the **vendor bar** at the top → how much of the web your egress trips.
-2. Per category tab → which verticals are worst (e.g., Airlines/Hotels often Akamai-heavy).
-3. Filter your attention to **`vendor = Akamai` + `verdict = BLOCKED`**, especially where
-   **`_abck = passed`** → proves IP-reputation blocking (escalate the GSA egress IP/ASN to Akamai).
-4. `CHALLENGE` rows (Cloudflare "Just a moment" / Akamai `~0~`) → degraded, looping, or
-   challenge-walled — also worth flagging.
-5. `ERROR` rows → DNS/timeout; re-run that subset before drawing conclusions.
+1. **`NETWORK-CAUSED` first.** Click the KPI to see sites that are `OK` direct but fail on GSA. This
+   is your evidence list — everything else is context. If this count is 0, GSA is not the cause.
+2. **`IP_REPUTATION`** rows (`_abck = passed` but denied) → the browser fingerprint was accepted yet
+   the request was still blocked ⇒ **egress IP/ASN reputation**. Escalate the **GSA egress IP + ASN**
+   (shown in the egress banner) and the **Akamai `Reference #`** to Akamai — that pair lets them trace
+   the deny in their logs.
+3. **Overall block rate** + **vendor bar** → how much of the web your egress trips, and via whom.
+4. **Per-category tabs** → which verticals are worst (Airlines/Hotels are often Akamai-heavy).
+5. **`HUMAN_CHALLENGE` / `BOT_CHALLENGE`** → challenge-walled or looping; degraded but not hard-blocked.
+6. **`ERROR`** rows → check the `layer:` tag. `DNS`/`TLS`/`TCP` failures are network-path issues
+   (often the SASE proxy), *not* WAF blocks — triage them separately from 403s.
 
 ### Re-run a subset
 Edit `sites-catalog.mjs` down to the categories/hosts of interest, or temporarily filter in
@@ -134,8 +162,8 @@ Edit `sites-catalog.mjs` down to the categories/hosts of interest, or temporaril
 
 - Catalog domains are **best-effort curated**; a few niche entries may 404/redirect — they show as
   `ERROR`/`OTHER`, not false blocks.
-- Headless Chromium has a slightly different fingerprint than headed Edge; for a forensic match
-  with a specific manual repro, use `channel: "msedge"` + `headless: false`.
+- The probe defaults to **real Edge + light stealth** to reduce the "headless = bot" confound. For
+  the highest fidelity on a contested case, add `PROBE_HEADED=1` (visible browser).
 - A **HAR is still the gold standard** for a single deep-dive (see the Playbook). This kit is for
-  **breadth** — finding *where else* the block reproduces.
-- A HAR/JSON can contain cookies/tokens — treat `results-catalog.json` as sensitive if shared.
+  **breadth** — finding *where else* the block reproduces — and for the **direct-vs-GSA delta**.
+- `results-*.json` can contain cookies/edge IPs — treat as sensitive if shared.
