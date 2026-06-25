@@ -6,10 +6,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CATALOG } from "./sites-catalog.mjs";
+import { loadConfig } from "./config.mjs";
 import { launchBrowser, makeContext, captureEgress, probeOne } from "./probe-core.mjs";
 
-const ARM = process.env.PROBE_ARM || "gsa";
-const OUT_DIR = join("akamai-probe-results", "catalog");
+const cfg = loadConfig();
+const ARM = cfg.arm;
+const OUT_DIR = cfg.outDir;
 const SHOT_DIR = join(OUT_DIR, "shots");
 mkdirSync(SHOT_DIR, { recursive: true });
 
@@ -46,7 +48,7 @@ console.log(`Egress: ${egress.ip || "?"} ${egress.org || ""} (${egress.source})`
 
 const results = [];
 for (const task of tasks) {
-  const r = await probeOne(ctx, task, { arm: ARM, shotMode: "all", outDir: OUT_DIR, shotDir: SHOT_DIR, evidence: true });
+  const r = await probeOne(ctx, task, { arm: ARM, shotMode: "all", outDir: OUT_DIR, shotDir: SHOT_DIR, evidence: cfg.evidence, retries: cfg.retries, navTimeout: cfg.navTimeout, settleMs: cfg.settleMs });
   results.push(r);
   console.log(`${r.verdict.padEnd(14)} ${String(r.status).padEnd(5)} ${r.vendor.padEnd(18)} ${r.edgeIp.padEnd(15)} ${r.url}`);
   await new Promise((res) => setTimeout(res, 300 + Math.floor(rand() * 400)));
@@ -55,7 +57,7 @@ for (const task of tasks) {
 await ctx.close();
 await browser.close();
 
-const payload = { meta: { arm: ARM, seed, browser: meta, egress, startedAt: new Date(seed).toISOString(), finishedAt: new Date().toISOString() }, results };
+const payload = { meta: { arm: ARM, paths: cfg.paths, seed, browser: meta, egress, startedAt: new Date(seed).toISOString(), finishedAt: new Date().toISOString() }, results };
 writeFileSync(join(OUT_DIR, `results-${ARM}.json`), JSON.stringify(payload, null, 2));
 writeFileSync(join(OUT_DIR, "results-catalog.json"), JSON.stringify(results, null, 2));
 console.log(`Wrote results-${ARM}.json and results-catalog.json (${results.length} sites)`);

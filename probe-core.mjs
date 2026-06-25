@@ -197,6 +197,80 @@ export function pickWafHeaders(headers) {
   return out;
 }
 
+// Curated header set captured per path for the direct-vs-GSA header diff. Values
+// are recorded as-is except cookies, where only the cookie *names* are kept
+// (never the values) so the report can be shared without leaking secrets.
+export const DIFF_HEADERS = [
+  "server", "via", "x-cache", "x-served-by", "age", "vary", "content-type", "x-powered-by",
+  "cache-control", "strict-transport-security", "content-security-policy", "x-frame-options",
+  "x-content-type-options", "referrer-policy", "permissions-policy",
+  "cf-ray", "cf-cache-status", "x-amz-cf-id", "x-azure-ref", "akamai-grn", "x-akamai-request-id",
+];
+
+export function pickDiffHeaders(headers = {}, headersArray = []) {
+  const out = {};
+  for (const k of DIFF_HEADERS) if (headers[k]) out[k] = String(headers[k]).slice(0, 200);
+  const names = [];
+  for (const h of headersArray) {
+    if ((h.name || "").toLowerCase() === "set-cookie") {
+      const n = String(h.value || "").split("=")[0].trim();
+      if (n) names.push(n);
+    }
+  }
+  if (names.length) out["set-cookie-names"] = Array.from(new Set(names)).sort().join(",");
+  return out;
+}
+
+// Pure header diff: returns [{key, a, b}] for every header that differs between
+// two captured header maps (missing on one side shows as null). Used by the
+// report to highlight what the network path changed (Server, Via, cache, HSTS…).
+export function diffHeaders(a = {}, b = {}) {
+  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+  const diffs = [];
+  for (const k of [...keys].sort()) {
+    const av = a && a[k] != null ? a[k] : null;
+    const bv = b && b[k] != null ? b[k] : null;
+    if (av !== bv) diffs.push({ key: k, a: av, b: bv });
+  }
+  return diffs;
+}
+
+// Confidence score (0–99) + human factors for a per-host diagnosis, computed
+// across all available paths. High confidence = corroborated, consistent,
+// strong-signal failure (e.g. direct OK, GSA fails, Akamai _abck passed, same
+// verdict across attempts). Low confidence = single path, timeout, or DNS flake.
+//   perPath  — { [pathId]: result }
+//   primary  — the path under test (default "gsa")
+//   baseline — the reference path (default "direct")
+export function scoreConfidence(perPath = {}, primary = "gsa", baseline = "direct") {
+  const factors = [];
+  const get = (id) => perPath[id];
+  const verdictOf = (id) => (get(id) || {}).verdict;
+  const p = get(primary) || {};
+  const pOk = verdictOf(primary) === "OK";
+  let s = 50;
+
+  if (verdictOf(primary) === "AUTH_REQUIRED") {
+    return { score: 90, factors: ["expected authentication (not a network/WAF block)"] };
+  }
+  if (get(baseline) && verdictOf(baseline) === "OK" && !pOk) { s += 30; factors.push(`${baseline} loads OK but ${primary} fails (network-attributable)`); }
+  if (get(baseline) && verdictOf(baseline) === "OK" && pOk) { s += 5; factors.push("both paths OK"); }
+  const others = Object.keys(perPath).filter((id) => id !== primary && id !== baseline);
+  if (others.length && !pOk && others.every((id) => verdictOf(id) === "OK")) { s += 15; factors.push(`other path(s) OK: ${others.join(", ")}`); }
+
+  const log = Array.isArray(p.attemptLog) ? p.attemptLog : [];
+  if (log.length >= 2 && new Set(log.map((a) => a.verdict)).size === 1) { s += 10; factors.push(`same result across ${log.length} attempts`); }
+
+  if (p.vendor === "Akamai" && p.abck === "passed" && !pOk) { s += 10; factors.push("Akamai _abck passed yet denied ⇒ IP/ASN reputation"); }
+  if (p.reason === "WAF_BLOCK" || p.reason === "IP_REPUTATION") { s += 5; factors.push(`specific reason: ${p.reason}`); }
+
+  if (p.reason === "TIMEOUT") { s -= 25; factors.push("timeout — often intermittent"); }
+  if (p.reason === "DNS_FAILURE") { s -= 10; factors.push("DNS failure — may be transient"); }
+  if (!get(baseline) && others.length === 0) { s -= 15; factors.push("single path — no corroborating baseline"); }
+
+  return { score: Math.max(5, Math.min(99, Math.round(s))), factors };
+}
+
 // Launch a browser. Prefers real Edge (channel:msedge) to match the production
 // client and reduce automation fingerprints; falls back to bundled Chromium.
 // Env: PROBE_CHANNEL (msedge|chrome|chromium), PROBE_HEADED=1 for headed runs.
@@ -269,22 +343,37 @@ export async function captureEgress(ctx) {
   return out;
 }
 
+// Build the full redirect chain with per-hop detail: each hop records the URL,
+// HTTP status (3xx for the redirects, final status for the landing response),
+// the Location header, the scheme/protocol, and the hop's response time (ms).
+// The final entry is the landed response. This pinpoints *where* in a redirect
+// sequence a failure occurred (e.g. URL A 301 → B 302 → C 403).
 function buildRedirectChain(resp) {
   const chain = [];
   try {
+    if (!resp) return chain;
+    const redirects = [];
     let req = resp.request().redirectedFrom();
-    const seen = [];
-    while (req) {
-      const rr = req.redirectedFrom();
-      const r = req.response && req.response();
-      seen.unshift(req.url());
-      req = rr;
-      if (seen.length > 12) break;
+    let guard = 0;
+    while (req && guard++ < 12) {
+      redirects.unshift(req);
+      req = req.redirectedFrom();
     }
-    return seen;
-  } catch {
-    return chain;
-  }
+    const hopOf = (rq, fallbackStatus) => {
+      const url = rq.url();
+      let status = fallbackStatus ?? null, location = "", ms = null;
+      try { const rp = rq.response(); if (rp) { status = rp.status(); location = rp.headers()["location"] || ""; } } catch {}
+      try { const t = rq.timing(); if (t && t.responseEnd >= 0) ms = Math.round(t.responseEnd - t.startTime); } catch {}
+      return { url, status, location, protocol: url.startsWith("https") ? "https" : "http", ms };
+    };
+    for (const rq of redirects) chain.push(hopOf(rq));
+    // final landed response
+    const furl = resp.url();
+    let fms = null;
+    try { const t = resp.request().timing(); if (t && t.responseEnd >= 0) fms = Math.round(t.responseEnd - t.startTime); } catch {}
+    chain.push({ url: furl, status: resp.status(), location: "", protocol: furl.startsWith("https") ? "https" : "http", ms: fms });
+  } catch { /* best-effort */ }
+  return chain;
 }
 
 // Probe a single host.
@@ -314,6 +403,7 @@ export async function probeOne(ctx, task, opts = {}) {
     edgeIp: "-",
     reference: "",
     wafHeaders: {},
+    headers: {},        // curated header set for the direct-vs-GSA header diff
     redirectChain: [],
     retryAfter: "",
     attempts: 0,        // numeric count (back-compat)
@@ -446,6 +536,9 @@ export async function probeOne(ctx, task, opts = {}) {
     r.grn = headers["akamai-grn"] || "-";
     r.retryAfter = headers["retry-after"] || "";
     r.wafHeaders = pickWafHeaders(headers);
+    let headersArray = [];
+    try { headersArray = resp ? await resp.headersArray() : []; } catch {}
+    r.headers = pickDiffHeaders(headers, headersArray);
     try { const sa = resp ? await resp.serverAddr() : null; if (sa && sa.ipAddress) r.edgeIp = sa.ipAddress; } catch {}
     r.redirectChain = resp ? buildRedirectChain(resp) : [];
     const cookies = await ctx.cookies(r.url);

@@ -7,6 +7,8 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { diffHeaders, scoreConfidence } from "./probe-core.mjs";
+
 const DIR = join("akamai-probe-results", "catalog");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const VCLASS = { BLOCKED: "blocked", IP_REPUTATION: "iprep", HUMAN_CHALLENGE: "challenge", BOT_CHALLENGE: "challenge", AUTH_REQUIRED: "auth", AUTH: "auth", OK: "ok", ERROR: "err", OTHER: "other" };
@@ -35,6 +37,27 @@ const results = arms[primaryArm].results;
 // index baseline by category|host for delta lookup
 const baseIdx = {};
 if (dual) for (const r of arms[baselineArm].results) baseIdx[r.category + "|" + r.host] = r;
+
+// Cross-arm index: "category|host" -> { armId: result } across ALL paths.
+// Powers the multi-path comparison matrix, per-host confidence scoring, and the
+// direct-vs-baseline header diff.
+const hostIdx = {};
+for (const arm of armNames) {
+  for (const r of arms[arm].results) {
+    const k = r.category + "|" + r.host;
+    (hostIdx[k] ||= {})[arm] = r;
+  }
+}
+const keyOf = (r) => r.category + "|" + r.host;
+function confidenceFor(r) {
+  return scoreConfidence(hostIdx[keyOf(r)] || { [primaryArm]: r }, primaryArm, baselineArm);
+}
+function headerDiffFor(r) {
+  const b = baseIdx[keyOf(r)];
+  if (!b || !b.headers || !r.headers) return [];
+  return diffHeaders(b.headers, r.headers);
+}
+function confClass(score) { return score >= 80 ? "ok" : score >= 55 ? "challenge" : "err"; }
 
 function deltaFor(r) {
   if (!dual) return null;
@@ -88,10 +111,23 @@ function detailCell(r) {
   if (r.evidence && r.evidence.console) ev.push(`<a href="${esc(r.evidence.console)}" target="_blank">console</a>`);
   if (r.har) ev.push(`<a href="${esc(r.har)}" target="_blank">har</a>`);
   const evLinks = ev.length ? `<div class="small">evidence: ${ev.join(" · ")}</div>` : "";
+  // Redirect chain with per-hop status (string[] legacy data is tolerated).
+  const chain = Array.isArray(r.redirectChain) ? r.redirectChain : [];
+  const hops = chain.filter((h) => h && typeof h === "object");
+  const chainHtml = hops.length > 1
+    ? `<div class="small mono">redirects: ${hops.map((h) => `${esc((h.url || "").replace(/^https?:\/\//, "").slice(0, 48))} <b>${esc(h.status ?? "?")}</b>${h.ms != null ? ` (${esc(h.ms)}ms)` : ""}`).join(" → ")}</div>`
+    : "";
+  // Header diff vs the direct baseline (most informative on the GSA arm).
+  const hd = headerDiffFor(r).filter((d) => d.key !== "set-cookie-names").slice(0, 8);
+  const hdHtml = hd.length
+    ? `<div class="small">Δ headers vs ${esc(baselineArm)}: ${hd.map((d) => `<span class="tag">${esc(d.key)}: ${esc(d.a ?? "∅")} → ${esc(d.b ?? "∅")}</span>`).join(" ")}</div>`
+    : "";
   return `<a href="${esc(r.url)}" target="_blank">${esc(r.host)}</a>${edge}${layer}${reason}${pass}${retry}${recovered}${recheck}
     <div class="small">probe <b>${probeMark}</b>: <span class="mono">${esc(r.probeUrl || r.url)}</span></div>
     <div class="small">final <b>${finalMark}</b>: <span class="mono">${esc(r.finalUrl || r.url)}</span>${r.redirected ? " <b>(redirected)</b>" : ""}</div>
+    ${chainHtml}
     ${waf ? `<div class="small mono">${waf}</div>` : ""}
+    ${hdHtml}
     ${evLinks}
     <div class="small">${esc(r.title || "")}</div>`;
 }
@@ -111,6 +147,7 @@ function deltaCell(r) {
 
 function rowTr(r, withCategory) {
   const d = dual ? deltaFor(r) : "";
+  const c = confidenceFor(r);
   return `<tr class="${VCLASS[r.verdict] || "other"}" data-verdict="${esc(r.verdict)}" data-vendor="${esc(r.vendor)}" data-status="${esc(r.status)}" data-delta="${esc(d)}">
     ${withCategory ? `<td class="small">${esc(r.category)}</td>` : ""}
     <td><span class="badge ${VCLASS[r.verdict] || "other"}">${esc(r.verdict)}</span></td>
@@ -120,6 +157,7 @@ function rowTr(r, withCategory) {
     <td class="refcell mono small">${esc(r.reference || "—")}</td>
     <td class="detailcell">${detailCell(r)}</td>
     ${deltaCell(r)}
+    <td class="confcell"><span class="badge ${confClass(c.score)}" title="${esc(c.factors.join(" · "))}">${c.score}%</span></td>
     <td>${thumb(r)}</td>
   </tr>`;
 }
@@ -135,9 +173,9 @@ function sortRows(rows, withCategory) {
   });
 }
 
-const colspan = dual ? 8 : 7;
+const colspan = dual ? 9 : 8;
 function tableHead(withCategory) {
-  return `<thead><tr>${withCategory ? `<th class="sortable">Category</th>` : ""}<th class="sortable">Verdict</th><th class="sortable">Status</th><th class="sortable">Vendor</th><th class="sortable">_abck</th><th class="sortable">Reference</th><th class="sortable">URL details / signals</th>${dual ? `<th class="sortable">Direct vs GSA</th>` : ""}<th>Image</th></tr></thead>`;
+  return `<thead><tr>${withCategory ? `<th class="sortable">Category</th>` : ""}<th class="sortable">Verdict</th><th class="sortable">Status</th><th class="sortable">Vendor</th><th class="sortable">_abck</th><th class="sortable">Reference</th><th class="sortable">URL details / signals</th>${dual ? `<th class="sortable">Direct vs GSA</th>` : ""}<th class="sortable">Confidence</th><th>Image</th></tr></thead>`;
 }
 
 function kpiBar(s) {
@@ -171,6 +209,30 @@ const panels = categories.map((c, i) => {
     <table>${tableHead(false)}<tbody>${sortRows(rows, false).map((r) => rowTr(r, false)).join("")}</tbody></table>
   </section>`;
 }).join("");
+
+// ---- comparison matrix (multi-path) ---------------------------------------
+// Every host whose verdict is NOT identical across all probed paths — the rows
+// where a path-specific (e.g. GSA-only) problem stands out. With a single arm
+// this is naturally empty.
+const matrixHosts = Object.keys(hostIdx)
+  .map((k) => ({ k, byArm: hostIdx[k] }))
+  .filter(({ byArm }) => new Set(armNames.map((a) => (byArm[a] || {}).verdict).filter(Boolean)).size > 1)
+  .sort((x, y) => x.k.localeCompare(y.k));
+function matrixCell(res) {
+  if (!res) return `<td class="small">—</td>`;
+  return `<td><span class="badge ${VCLASS[res.verdict] || "other"}">${esc(res.verdict)}</span> <span class="mono small">${esc(res.status)}</span></td>`;
+}
+const matrixPanel = armNames.length >= 2 ? `<section class="panel" id="matrix">
+  <h2>Comparison Matrix <span class="small">— ${matrixHosts.length} site(s) differ across paths</span></h2>
+  <p class="sub">Sites whose verdict is not identical across every probed path. The clearer the agreement (e.g. all paths OK except GSA), the higher the confidence.</p>
+  <table><thead><tr><th class="sortable">Site</th>${armNames.map((a) => `<th class="sortable">${esc(a)}</th>`).join("")}<th class="sortable">Confidence</th></tr></thead>
+  <tbody>${matrixHosts.slice(0, 500).map(({ k, byArm }) => {
+    const [cat, host] = k.split("|");
+    const prim = byArm[primaryArm] || Object.values(byArm)[0];
+    const c = confidenceFor(prim);
+    return `<tr><td><a href="https://${esc(host)}" target="_blank">${esc(host)}</a><div class="small">${esc(cat)}</div></td>${armNames.map((a) => matrixCell(byArm[a])).join("")}<td><span class="badge ${confClass(c.score)}" title="${esc(c.factors.join(" · "))}">${c.score}%</span></td></tr>`;
+  }).join("")}</tbody></table>
+</section>` : "";
 
 const categoryTabs = categories.map((c, i) => {
   const s = summarize(byCat[c]);
@@ -244,6 +306,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   th.sortable.asc::after{content:"\\2191";opacity:1}
   th.sortable.desc::after{content:"\\2193";opacity:1}
   td.refcell{max-width:210px;overflow-wrap:anywhere;word-break:break-all}
+  td.confcell{white-space:nowrap;text-align:center}
   td.detailcell{max-width:420px;overflow-wrap:anywhere}
   td.detailcell .mono{overflow-wrap:anywhere;word-break:break-all}
   tr.blocked{background:rgba(255,92,92,.06)}tr.challenge{background:rgba(255,176,32,.06)}tr.iprep{background:rgba(255,140,66,.08)}
@@ -299,10 +362,13 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <div><code>reason:</code> = specific machine-readable cause (e.g. <code>DNS_FAILURE</code>, <code>TLS_FAILURE</code>, <code>TIMEOUT</code>, <code>HTTP_403</code>, <code>WAF_BLOCK</code>, <code>IP_REPUTATION</code>) · <code>FAILED_ONCE/TWICE/ALL</code> / <code>RECOVERED</code> = attempt history · <code>evidence:</code> = per-host network log / console / HAR for failed rows.</div>
     <div><code>edge:</code> = CDN edge IP that served the response · <code>layer:</code> = failed network layer (DNS/TCP/TLS/TIMEOUT/HTTP) for errors · <code>retry-after:</code> = throttle hint.</div>
     <div><code>Reference</code> = CDN/WAF trace ID to hand to support — Akamai <code>Reference #</code>/<code>errors.edgesuite.net</code>, Cloudflare <code>cf-ray</code>, or AWS CloudFront <code>x-amz-cf-id</code> (shown on failed rows).</div>
+    <div><code>Confidence</code> = how trustworthy the diagnosis is (hover for the factors). High = corroborated across paths, consistent across attempts, strong signal (e.g. direct OK / GSA fails / Akamai <code>_abck passed</code>). Low = single path, timeout, or DNS flake.</div>
+    <div><code>redirects:</code> = full redirect chain with per-hop status &amp; timing · <code>Δ headers vs ${esc(baselineArm)}</code> = headers that changed between the baseline and this path · <b>Comparison Matrix</b> tab = per-path verdict grid for sites that differ across paths.</div>
   </div>
 
-  <div class="tabs"><button class="tab active" data-tab="all">All Categories <span class="tabcount ${(dual ? overall.networkCaused : 0) > 0 ? "warn" : ""}">${dual ? overall.networkCaused : BLOCKish.reduce((a, v) => a + (overall[v] || 0), 0)}/${overall.total}</span></button>${categoryTabs}</div>
+  <div class="tabs"><button class="tab active" data-tab="all">All Categories <span class="tabcount ${(dual ? overall.networkCaused : 0) > 0 ? "warn" : ""}">${dual ? overall.networkCaused : BLOCKish.reduce((a, v) => a + (overall[v] || 0), 0)}/${overall.total}</span></button>${armNames.length >= 2 ? `<button class="tab" data-tab="matrix">Comparison Matrix <span class="tabcount ${matrixHosts.length > 0 ? "warn" : ""}">${matrixHosts.length}</span></button>` : ""}${categoryTabs}</div>
   ${allPanel}
+  ${matrixPanel}
   ${panels}
 
   <footer>Verdicts: NETWORK-CAUSED=OK direct/fail GSA · IP_REPUTATION=abck passed but denied · BLOCKED=401/403/429/444/451/503/denied · HUMAN_CHALLENGE=captcha · BOT_CHALLENGE=sensor challenge · OK=2xx/3xx · ERROR=nav failed (see layer).<br/>

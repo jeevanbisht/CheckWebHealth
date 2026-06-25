@@ -106,24 +106,63 @@ Full setup: **[INSTALL.md](INSTALL.md)** · usage, env vars & interpreting resul
 | File | Purpose |
 |------|---------|
 | `sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
-| `probe-core.mjs` | Shared probe engine: Edge launch + stealth, egress IP/ASN capture, classify, auth-vs-block detection, specific-reason taxonomy, retries + attempt log, failure evidence. |
+| `probe-core.mjs` | Shared probe engine: Edge launch + stealth, egress IP/ASN capture, classify, auth-vs-block detection, specific-reason taxonomy, retries + attempt log, failure evidence, redirect-chain timing, header capture/diff, confidence scoring. |
+| `config.mjs` | Single source of run config. Merges built-in `DEFAULTS` ← `probe.config.json` ← environment variables (`loadConfig()`). |
 | `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` (+ legacy `results-catalog.json`). |
 | `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
 | `probe-evidence.mjs` | Re-screenshots the non-`OK` rows of an existing run (resilient + resumable); `HAR=1` adds per-host `.har`. |
-| `render-catalog-html.mjs` | Renders the tabbed, interactive HTML report; merges arms into a delta. |
-| `tests/` | Unit tests for the pure classification helpers (`npm test`). |
+| `render-catalog-html.mjs` | Renders the tabbed, interactive HTML report; merges arms into a delta, a **Comparison Matrix** of per-path verdicts, a **Confidence** column, redirect chains and per-row header diffs. |
+| `tests/` | Unit tests for the pure helpers — classification, config precedence, header diff, confidence scoring (`npm test`). |
+
+### Configuration file (`probe.config.json`)
+
+All run settings have built-in defaults and can be overridden by an optional `probe.config.json`
+in the repo root, which is in turn overridden by environment variables (env wins). Example:
+
+```json
+{
+  "retries": 3,
+  "concurrency": 6,
+  "navTimeout": 30000,
+  "settleMs": 3000,
+  "paths": [
+    { "id": "direct", "label": "Direct Internet" },
+    { "id": "gsa", "label": "Microsoft GSA" }
+  ]
+}
+```
+
+Each `paths` entry maps to a `results-<id>.json` output file; the report lines every path up
+into the Comparison Matrix automatically (add a 3rd path, e.g. `azure-vm`, and it appears).
 
 Key environment variables (full list in the Runbook):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa`). |
+| `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa` / any path id). |
 | `CONC` | `4` | Parallel browser contexts. Keep modest. |
 | `PROBE_RETRIES` | `2` | Max attempts per site. Transient `429/503` are retried; the full attempt history is recorded. |
+| `NAV_TIMEOUT` | `25000` | Per-navigation timeout (ms). |
+| `SETTLE_MS` | `2500` | Time to let the page settle before reading state (ms). |
+| `OUT_DIR` | `akamai-probe-results/catalog` | Output directory for results, screenshots and evidence. |
 | `PROBE_CHANNEL` | `msedge` | Browser channel (`msedge` / `chrome` / `chromium`). |
 | `PROBE_HEADED` | unset | Set `1` for a headed (visible) run — best forensic fidelity. |
 | `SHOTS` | unset | Set `1` to screenshot every site (heavy for 2,500 sites). |
 | `HAR` | unset | On `npm run evidence`, set `1` to export a true per-host `.har` for each failed row. |
+
+### Report: matrix, confidence, redirects & header diff
+
+- **Comparison Matrix** tab — for every site whose verdict is **not** identical across all probed
+  paths, a `Site | Direct | GSA | … | Confidence` grid. This is where a path-specific (e.g.
+  GSA-only) block stands out at a glance.
+- **Confidence** column — a 5–99% score with the contributing factors on hover (e.g. *direct loads
+  OK but GSA fails*, *same result across 3 attempts*, *Akamai `_abck` passed yet denied*). Single
+  path / timeout / DNS flakes score low; corroborated, consistent, strong-signal failures score high.
+- **Redirect chain** — each hop's status, `Location`, protocol and per-hop timing, so you can see
+  *where* in the chain a failure occurred (not just the final URL).
+- **Header diff** — on dual-arm runs, the headers that changed between the `direct` baseline and the
+  path under test (Server, Via, cache, HSTS, CDN trace IDs). Only header **names** are stored for
+  cookies — never values — so the report stays shareable.
 
 ---
 

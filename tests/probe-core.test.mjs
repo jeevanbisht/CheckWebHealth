@@ -5,8 +5,9 @@ import assert from "node:assert/strict";
 import {
   classify, authState, deriveReason, summarizePasses,
   detectVendor, abckState, errorLayer, extractReference, slugify,
-  BLOCK_STATUS,
+  BLOCK_STATUS, diffHeaders, scoreConfidence, pickDiffHeaders,
 } from "../probe-core.mjs";
+import { loadConfig, DEFAULTS } from "../config.mjs";
 
 // ---- BLOCK_STATUS no longer treats 401 as a block ------------------------
 test("401 is not in BLOCK_STATUS (auth, not block)", () => {
@@ -105,6 +106,94 @@ test("detectVendor recognises Akamai by cookie", () => {
 
 test("detectVendor recognises Cloudflare by header", () => {
   assert.equal(detectVendor({ "cf-ray": "abc-IAD" }, "", "cloudflare"), "Cloudflare");
+});
+
+// ---- config: precedence DEFAULTS < file < env ----------------------------
+test("loadConfig returns DEFAULTS when no file and empty env", () => {
+  const cfg = loadConfig({}, "does-not-exist.json");
+  assert.equal(cfg.retries, DEFAULTS.retries);
+  assert.equal(cfg.arm, DEFAULTS.arm);
+  assert.deepEqual(cfg.paths.map((p) => p.id), ["direct", "gsa"]);
+});
+
+test("loadConfig: env overrides DEFAULTS and coerces numbers", () => {
+  const cfg = loadConfig({ PROBE_ARM: "direct", PROBE_RETRIES: "5", NAV_TIMEOUT: "9000", CONC: "8" }, "does-not-exist.json");
+  assert.equal(cfg.arm, "direct");
+  assert.equal(cfg.retries, 5);
+  assert.equal(cfg.navTimeout, 9000);
+  assert.equal(cfg.concurrency, 8);
+});
+
+test("loadConfig clamps retries/concurrency to a sane minimum", () => {
+  const cfg = loadConfig({ PROBE_RETRIES: "0", CONC: "0" }, "does-not-exist.json");
+  assert.equal(cfg.retries, 1);
+  assert.equal(cfg.concurrency, 1);
+});
+
+test("loadConfig ignores non-numeric env and keeps the default", () => {
+  const cfg = loadConfig({ NAV_TIMEOUT: "abc" }, "does-not-exist.json");
+  assert.equal(cfg.navTimeout, DEFAULTS.navTimeout);
+});
+
+// ---- header diff ----------------------------------------------------------
+test("diffHeaders reports added, removed and changed headers", () => {
+  const d = diffHeaders(
+    { server: "nginx", via: "1.1 direct", age: "1" },
+    { server: "AkamaiGHost", via: "1.1 direct", "x-cache": "TCP_HIT" },
+  );
+  const byKey = Object.fromEntries(d.map((x) => [x.key, x]));
+  assert.deepEqual(byKey.server, { key: "server", a: "nginx", b: "AkamaiGHost" });
+  assert.deepEqual(byKey.age, { key: "age", a: "1", b: null });
+  assert.deepEqual(byKey["x-cache"], { key: "x-cache", a: null, b: "TCP_HIT" });
+  assert.equal(byKey.via, undefined); // identical → not reported
+});
+
+test("diffHeaders on identical maps returns empty", () => {
+  assert.deepEqual(diffHeaders({ a: "1" }, { a: "1" }), []);
+});
+
+// ---- pickDiffHeaders: whitelist + cookie names only -----------------------
+test("pickDiffHeaders keeps only whitelisted headers and cookie NAMES", () => {
+  const out = pickDiffHeaders(
+    { server: "AkamaiGHost", "set-cookie": "secret=value", "x-secret": "nope" },
+    [{ name: "set-cookie", value: "_abck=AAA=BBB; Path=/" }, { name: "set-cookie", value: "bm_sz=ZZZ" }],
+  );
+  assert.equal(out.server, "AkamaiGHost");
+  assert.equal(out["x-secret"], undefined); // not whitelisted
+  assert.equal(out["set-cookie-names"], "_abck,bm_sz"); // names only, no values
+  assert.ok(!JSON.stringify(out).includes("value")); // never leak cookie values
+});
+
+// ---- confidence scoring ---------------------------------------------------
+test("scoreConfidence: direct OK + GSA blocked + Akamai abck passed = high", () => {
+  const { score, factors } = scoreConfidence({
+    direct: { verdict: "OK" },
+    gsa: { verdict: "IP_REPUTATION", vendor: "Akamai", abck: "passed", reason: "IP_REPUTATION",
+           attemptLog: [{ verdict: "IP_REPUTATION" }, { verdict: "IP_REPUTATION" }] },
+  }, "gsa", "direct");
+  assert.ok(score >= 90, `expected high confidence, got ${score}`);
+  assert.ok(factors.length >= 2);
+});
+
+test("scoreConfidence: AUTH_REQUIRED short-circuits to 90 (not a block)", () => {
+  const { score } = scoreConfidence({ gsa: { verdict: "AUTH_REQUIRED" } }, "gsa", "direct");
+  assert.equal(score, 90);
+});
+
+test("scoreConfidence: single path with timeout is low", () => {
+  const { score } = scoreConfidence({ gsa: { verdict: "ERROR", reason: "TIMEOUT" } }, "gsa", "direct");
+  assert.ok(score <= 30, `expected low confidence, got ${score}`);
+});
+
+test("scoreConfidence is clamped to the 5–99 range", () => {
+  const lo = scoreConfidence({ gsa: { verdict: "ERROR", reason: "TIMEOUT" } }, "gsa", "direct").score;
+  const hi = scoreConfidence({
+    direct: { verdict: "OK" },
+    azure: { verdict: "OK" },
+    gsa: { verdict: "IP_REPUTATION", vendor: "Akamai", abck: "passed", reason: "IP_REPUTATION",
+           attemptLog: [{ verdict: "IP_REPUTATION" }, { verdict: "IP_REPUTATION" }, { verdict: "IP_REPUTATION" }] },
+  }, "gsa", "direct").score;
+  assert.ok(lo >= 5 && hi <= 99);
 });
 
 test("abckState reads sensor state", () => {

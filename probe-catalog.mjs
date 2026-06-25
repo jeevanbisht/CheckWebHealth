@@ -12,22 +12,23 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CATALOG } from "./sites-catalog.mjs";
+import { loadConfig } from "./config.mjs";
 import { launchBrowser, makeContext, captureEgress, probeOne } from "./probe-core.mjs";
 
-const ARM = process.env.PROBE_ARM || "gsa";
-const CONCURRENCY = Number(process.env.CONC || 4);
-const OUT_DIR = join("akamai-probe-results", "catalog");
+const cfg = loadConfig();
+const ARM = cfg.arm;
+const CONCURRENCY = cfg.concurrency;
+const OUT_DIR = cfg.outDir;
 const SHOT_DIR = join(OUT_DIR, "shots");
 mkdirSync(SHOT_DIR, { recursive: true });
 
-const SHOTS = process.env.SHOTS === "1"; // "1" = screenshot every site; default = only failures
-const SHOT_MODE = SHOTS ? "all" : "fail";
+const SHOT_MODE = cfg.shots;
 
 const tasks = [];
 for (const [category, hosts] of Object.entries(CATALOG))
   for (const host of hosts) tasks.push({ category, host });
 
-console.log(`Catalog probe arm="${ARM}": ${tasks.length} sites, concurrency ${CONCURRENCY}`);
+console.log(`Catalog probe arm="${ARM}": ${tasks.length} sites, concurrency ${CONCURRENCY}, retries ${cfg.retries}`);
 const t0 = Date.now();
 const { browser, meta } = await launchBrowser();
 console.log(`Browser: ${meta.channel} headless=${meta.headless} stealth=${meta.stealth}`);
@@ -42,7 +43,7 @@ console.log(`Egress: ${egress.ip || "?"} ${egress.org || ""} (${egress.source})`
 
 function writeOut() {
   const present = results.filter(Boolean);
-  const payload = { meta: { arm: ARM, browser: meta, egress, startedAt: new Date(t0).toISOString(), finishedAt: new Date().toISOString() }, results: present };
+  const payload = { meta: { arm: ARM, paths: cfg.paths, browser: meta, egress, startedAt: new Date(t0).toISOString(), finishedAt: new Date().toISOString() }, results: present };
   writeFileSync(join(OUT_DIR, `results-${ARM}.json`), JSON.stringify(payload, null, 0));
   writeFileSync(join(OUT_DIR, "results-catalog.json"), JSON.stringify(present, null, 0));
 }
@@ -54,7 +55,7 @@ async function worker(wi) {
   while (true) {
     const i = next++;
     if (i >= tasks.length) break;
-    results[i] = await probeOne(ctx, tasks[i], { arm: ARM, shotMode: SHOT_MODE, outDir: OUT_DIR, shotDir: SHOT_DIR, evidence: true });
+    results[i] = await probeOne(ctx, tasks[i], { arm: ARM, shotMode: SHOT_MODE, outDir: OUT_DIR, shotDir: SHOT_DIR, evidence: cfg.evidence, retries: cfg.retries, navTimeout: cfg.navTimeout, settleMs: cfg.settleMs });
     done++;
     await new Promise((res) => setTimeout(res, 200 + Math.floor(Math.random() * 300))); // jitter spacing
     if (done % 25 === 0 || done === tasks.length) {
