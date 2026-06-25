@@ -54,7 +54,7 @@ async function worker(wi) {
   while (true) {
     const i = next++;
     if (i >= tasks.length) break;
-    results[i] = await probeOne(ctx, tasks[i], { arm: ARM, shotMode: SHOT_MODE, outDir: OUT_DIR, shotDir: SHOT_DIR });
+    results[i] = await probeOne(ctx, tasks[i], { arm: ARM, shotMode: SHOT_MODE, outDir: OUT_DIR, shotDir: SHOT_DIR, evidence: true });
     done++;
     await new Promise((res) => setTimeout(res, 200 + Math.floor(Math.random() * 300))); // jitter spacing
     if (done % 25 === 0 || done === tasks.length) {

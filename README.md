@@ -36,7 +36,7 @@ stealth (to remove the "headless = bot" confound) to each site, and records per 
 
 | Captured | Detail |
 |----------|--------|
-| **Verdict** | `OK` · `IP_REPUTATION` · `BLOCKED` · `HUMAN_CHALLENGE` · `BOT_CHALLENGE` · `ERROR` |
+| **Verdict** | `OK` · `AUTH_REQUIRED` · `IP_REPUTATION` · `BLOCKED` · `HUMAN_CHALLENGE` · `BOT_CHALLENGE` · `ERROR` |
 | **Vendor** | Akamai / Cloudflare / Imperva / AWS CloudFront-WAF / Fastly / F5 BIG-IP / Vercel / Netlify / … |
 | **`_abck` state** | `passed` (`~-1~`) vs `challenged` (`~0~`) — the key Akamai Bot-Manager signal |
 | **HTTP status + WAF headers** | `server`, `akamai-grn`, `retry-after`, and vendor headers |
@@ -44,10 +44,18 @@ stealth (to remove the "headless = bot" confound) to each site, and records per 
 | **CDN edge IP / failure layer** | `edge:` IP that served the response; for errors, the failed `layer:` (DNS/TCP/TLS/TIMEOUT/HTTP) |
 | **Egress IP + ASN/org** | The public IP and ASN the request exited from (per arm) |
 | **Screenshot** | Captured at the moment of the block for every non-`OK` row (evidence that survives a retry) |
+| **Specific reason** | Machine-readable cause alongside the verdict — `DNS_FAILURE` · `TCP_FAILURE` · `TLS_FAILURE` · `TIMEOUT` · `RESET_CONNECTION` · `HTTP_403/404/429/5XX` · `WAF_BLOCK` · `IP_REPUTATION` · `AUTH_REQUIRED` |
+| **Attempt history** | Every attempt is logged (`attemptLog`) and rolled up to `PASS` · `RECOVERED` · `FAILED_ONCE` · `FAILED_TWICE` · `FAILED_ALL` — a failure is never decided from a single try |
+| **Failure evidence** | On non-`OK` rows only: a per-host network log + browser console log (and a true `.har` on the evidence pass with `HAR=1`). Successful runs stay lightweight. |
+
+> **Authentication is not a block.** A `401`, or a redirect to a known identity provider
+> (Microsoft Entra/Azure AD, Okta, Ping, Duo, ADFS), is classified as `AUTH_REQUIRED` — never as a
+> `BLOCKED` or `NETWORK-CAUSED` failure.
 
 The output is a **single self-contained HTML report**, tabbed by category, with per-category and
-overall summaries, an egress banner, combinable **verdict / vendor / status filters**,
-**click-to-sort** columns, and an **Excel export** of the filtered view.
+overall summaries, an egress banner, a **top-failure-reasons** bar, combinable
+**verdict / vendor / status filters**, **click-to-sort** columns, and an **Excel export** of the
+filtered view.
 
 ---
 
@@ -84,9 +92,10 @@ Full setup: **[INSTALL.md](INSTALL.md)** · usage, env vars & interpreting resul
 | Script | Action |
 |--------|--------|
 | `npm run setup` | Install the Microsoft Edge + Chromium browser binaries |
+| `npm test` | Run the unit tests for the classification helpers (Node's built-in runner — no extra deps) |
 | `npm run sample` | Run a 10-category sample probe (with screenshots) |
 | `npm run probe` | Run the full 2,500-site catalog probe (tag the arm via `PROBE_ARM`) |
-| `npm run evidence` | Re-screenshot the non-`OK` rows of an existing run |
+| `npm run evidence` | Re-screenshot the non-`OK` rows of an existing run (add `HAR=1` for per-host `.har`) |
 | `npm run report` | Build the tabbed HTML report from results |
 | `npm run all` | Probe + report |
 
@@ -97,11 +106,12 @@ Full setup: **[INSTALL.md](INSTALL.md)** · usage, env vars & interpreting resul
 | File | Purpose |
 |------|---------|
 | `sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
-| `probe-core.mjs` | Shared probe engine: Edge launch + stealth, egress IP/ASN capture, classify, retry. |
+| `probe-core.mjs` | Shared probe engine: Edge launch + stealth, egress IP/ASN capture, classify, auth-vs-block detection, specific-reason taxonomy, retries + attempt log, failure evidence. |
 | `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` (+ legacy `results-catalog.json`). |
 | `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
-| `probe-evidence.mjs` | Re-screenshots the non-`OK` rows of an existing run (resilient + resumable). |
+| `probe-evidence.mjs` | Re-screenshots the non-`OK` rows of an existing run (resilient + resumable); `HAR=1` adds per-host `.har`. |
 | `render-catalog-html.mjs` | Renders the tabbed, interactive HTML report; merges arms into a delta. |
+| `tests/` | Unit tests for the pure classification helpers (`npm test`). |
 
 Key environment variables (full list in the Runbook):
 
@@ -109,9 +119,11 @@ Key environment variables (full list in the Runbook):
 |-----|---------|---------|
 | `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa`). |
 | `CONC` | `4` | Parallel browser contexts. Keep modest. |
+| `PROBE_RETRIES` | `2` | Max attempts per site. Transient `429/503` are retried; the full attempt history is recorded. |
 | `PROBE_CHANNEL` | `msedge` | Browser channel (`msedge` / `chrome` / `chromium`). |
 | `PROBE_HEADED` | unset | Set `1` for a headed (visible) run — best forensic fidelity. |
 | `SHOTS` | unset | Set `1` to screenshot every site (heavy for 2,500 sites). |
+| `HAR` | unset | On `npm run evidence`, set `1` to export a true per-host `.har` for each failed row. |
 
 ---
 

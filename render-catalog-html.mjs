@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 const DIR = join("akamai-probe-results", "catalog");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const VCLASS = { BLOCKED: "blocked", IP_REPUTATION: "iprep", HUMAN_CHALLENGE: "challenge", BOT_CHALLENGE: "challenge", OK: "ok", ERROR: "err", OTHER: "other" };
+const VCLASS = { BLOCKED: "blocked", IP_REPUTATION: "iprep", HUMAN_CHALLENGE: "challenge", BOT_CHALLENGE: "challenge", AUTH_REQUIRED: "auth", AUTH: "auth", OK: "ok", ERROR: "err", OTHER: "other" };
 const BLOCKish = ["BLOCKED", "IP_REPUTATION", "HUMAN_CHALLENGE", "BOT_CHALLENGE"];
 
 // ---- load arms -------------------------------------------------------------
@@ -55,10 +55,11 @@ for (const r of results) (byCat[r.category] ||= []).push(r);
 const categories = Object.keys(byCat);
 
 function summarize(rows) {
-  const s = { total: rows.length, OK: 0, BLOCKED: 0, IP_REPUTATION: 0, HUMAN_CHALLENGE: 0, BOT_CHALLENGE: 0, ERROR: 0, OTHER: 0, akamai: 0, akamaiBlocked: 0, networkCaused: 0, vendors: {} };
+  const s = { total: rows.length, OK: 0, BLOCKED: 0, IP_REPUTATION: 0, HUMAN_CHALLENGE: 0, BOT_CHALLENGE: 0, AUTH_REQUIRED: 0, ERROR: 0, OTHER: 0, akamai: 0, akamaiBlocked: 0, networkCaused: 0, vendors: {}, reasons: {} };
   for (const r of rows) {
     s[r.verdict] = (s[r.verdict] || 0) + 1;
     s.vendors[r.vendor] = (s.vendors[r.vendor] || 0) + 1;
+    if (r.reason) s.reasons[r.reason] = (s.reasons[r.reason] || 0) + 1;
     if (r.vendor === "Akamai") { s.akamai++; if (BLOCKish.includes(r.verdict)) s.akamaiBlocked++; }
     if (dual && deltaFor(r) === "NETWORK-CAUSED") s.networkCaused++;
   }
@@ -80,10 +81,18 @@ function detailCell(r) {
   const retry = r.retryAfter ? ` <span class="tag">retry-after:${esc(r.retryAfter)}</span>` : "";
   const recovered = r.retryRecovered ? ` <span class="tag" style="color:var(--challenge)">transient: ${esc(r.firstStatus)}→${esc(r.status)} (recovered on retry — see evidence shot)</span>` : "";
   const recheck = r.recheckVerdict && r.recheckVerdict !== r.verdict ? ` <span class="tag">re-checked: ${esc(r.recheckVerdict)} (${esc(r.recheckStatus)})</span>` : "";
-  return `<a href="${esc(r.url)}" target="_blank">${esc(r.host)}</a>${edge}${layer}${retry}${recovered}${recheck}
+  const reason = r.reason && r.reason !== "OK" ? ` <span class="tag" style="color:var(--accent)">reason:${esc(r.reason)}</span>` : "";
+  const pass = r.passSummary && r.passSummary !== "PASS" ? ` <span class="tag">${esc(r.passSummary)}${Array.isArray(r.attemptLog) && r.attemptLog.length > 1 ? " (" + r.attemptLog.map((a) => esc(a.status)).join("→") + ")" : ""}</span>` : "";
+  const ev = [];
+  if (r.evidence && r.evidence.netlog) ev.push(`<a href="${esc(r.evidence.netlog)}" target="_blank">netlog</a>`);
+  if (r.evidence && r.evidence.console) ev.push(`<a href="${esc(r.evidence.console)}" target="_blank">console</a>`);
+  if (r.har) ev.push(`<a href="${esc(r.har)}" target="_blank">har</a>`);
+  const evLinks = ev.length ? `<div class="small">evidence: ${ev.join(" · ")}</div>` : "";
+  return `<a href="${esc(r.url)}" target="_blank">${esc(r.host)}</a>${edge}${layer}${reason}${pass}${retry}${recovered}${recheck}
     <div class="small">probe <b>${probeMark}</b>: <span class="mono">${esc(r.probeUrl || r.url)}</span></div>
     <div class="small">final <b>${finalMark}</b>: <span class="mono">${esc(r.finalUrl || r.url)}</span>${r.redirected ? " <b>(redirected)</b>" : ""}</div>
     ${waf ? `<div class="small mono">${waf}</div>` : ""}
+    ${evLinks}
     <div class="small">${esc(r.title || "")}</div>`;
 }
 
@@ -140,6 +149,7 @@ function kpiBar(s) {
     <button class="kpi kpi-filter blocked" data-filter="verdict:BLOCKED">${pill("BLOCKED", s.BLOCKED)}</button>
     <button class="kpi kpi-filter challenge" data-filter="verdict:HUMAN_CHALLENGE">${pill("HUMAN", s.HUMAN_CHALLENGE)}</button>
     <button class="kpi kpi-filter challenge" data-filter="verdict:BOT_CHALLENGE">${pill("BOT", s.BOT_CHALLENGE)}</button>
+    <button class="kpi kpi-filter auth" data-filter="verdict:AUTH_REQUIRED">${pill("AUTH", s.AUTH_REQUIRED)}</button>
     <button class="kpi kpi-filter err" data-filter="verdict:ERROR">${pill("ERROR", s.ERROR)}</button>
     <span class="rate">Block rate: <b>${s.blockRate}%</b></span>
     <span class="rate">Akamai: <b>${s.akamai}</b> (blocked ${s.akamaiBlocked}, ${s.akamaiBlockRate}%)</span>
@@ -196,7 +206,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <title>GSA × CDN/Bot-Manager — Site Probe</title>
 <style>
   :root{--bg:#0b0e14;--card:#141923;--ink:#e6edf3;--mut:#9aa7b4;--line:#26303d;
-    --blocked:#ff5c5c;--challenge:#ffb020;--ok:#3fb950;--err:#a371f7;--iprep:#ff8c42;--accent:#58a6ff;}
+    --blocked:#ff5c5c;--challenge:#ffb020;--ok:#3fb950;--err:#a371f7;--iprep:#ff8c42;--auth:#2dd4bf;--accent:#58a6ff;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif}
   .wrap{max-width:1280px;margin:0 auto;padding:28px 20px 64px}
@@ -208,7 +218,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .cards{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;min-width:104px}
   .kpi .n{font-size:22px;font-weight:700}.kpi .l{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
-  .kpi.blocked .n{color:var(--blocked)}.kpi.ok .n{color:var(--ok)}.kpi.challenge .n{color:var(--challenge)}.kpi.err .n{color:var(--err)}.kpi.iprep .n{color:var(--iprep)}
+  .kpi.blocked .n{color:var(--blocked)}.kpi.ok .n{color:var(--ok)}.kpi.challenge .n{color:var(--challenge)}.kpi.err .n{color:var(--err)}.kpi.iprep .n{color:var(--iprep)}.kpi.auth .n{color:var(--auth)}
   .kpi-filter{cursor:pointer;text-align:left;appearance:none;-webkit-appearance:none;font:inherit;color:inherit}
   .kpi-filter.active,.vendor-chip.active{outline:2px solid var(--accent);outline-offset:1px}
   .vendbar{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 18px;font-size:12px;color:var(--mut)}
@@ -244,6 +254,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .badge.blocked{background:rgba(255,92,92,.15);color:var(--blocked)}.badge.challenge{background:rgba(255,176,32,.15);color:var(--challenge)}
   .badge.ok{background:rgba(63,185,80,.15);color:var(--ok)}.badge.err{background:rgba(163,113,247,.15);color:var(--err)}
   .badge.iprep{background:rgba(255,140,66,.18);color:var(--iprep)}
+  .badge.auth{background:rgba(45,212,191,.16);color:var(--auth)}
   .badge.other{background:#222b38;color:var(--mut)}
   .thumb{width:160px;height:auto;border:1px solid var(--line);border-radius:6px;display:block}
   .filter-state{margin:8px 0 4px;color:var(--mut);font-size:12px}.filter-state b{color:var(--ink)}
@@ -264,9 +275,11 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <button class="kpi kpi-filter blocked" data-filter="verdict:BLOCKED"><div class="n">${overall.BLOCKED}</div><div class="l">Blocked</div></button>
     <button class="kpi kpi-filter challenge" data-filter="verdict:HUMAN_CHALLENGE"><div class="n">${overall.HUMAN_CHALLENGE}</div><div class="l">Human challenge</div></button>
     <button class="kpi kpi-filter challenge" data-filter="verdict:BOT_CHALLENGE"><div class="n">${overall.BOT_CHALLENGE}</div><div class="l">Bot challenge</div></button>
+    <button class="kpi kpi-filter auth" data-filter="verdict:AUTH_REQUIRED"><div class="n">${overall.AUTH_REQUIRED}</div><div class="l">Auth required</div></button>
     <button class="kpi kpi-filter err" data-filter="verdict:ERROR"><div class="n">${overall.ERROR}</div><div class="l">Error</div></button>
   </div>
   <div class="vendbar">${allVendors.map(([k, v]) => `<button class="vendor-chip" data-filter="vendor:${esc(k)}">${esc(k)}: ${v}</button>`).join(" ")}</div>
+  ${Object.keys(overall.reasons).length ? `<div class="vendbar"><span style="align-self:center">Top reasons:</span> ${Object.entries(overall.reasons).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => `<span class="vendor-chip" style="cursor:default">${esc(k)}: ${v}</span>`).join(" ")}</div>` : ""}
   <div class="statusbar">
     <label for="statusFilter">Status:</label>
     <select id="statusFilter">
@@ -279,9 +292,11 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   <div class="legend">
     <div><code>NETWORK-CAUSED</code> = loads OK on the <b>direct</b> baseline but fails through <b>GSA</b> — the actionable, network-attributable failures.</div>
     <div><code>IP_REPUTATION</code> = bot sensor validated the browser (<code>_abck passed</code>) yet the request was still denied ⇒ block is keyed on egress IP/ASN, not the browser. Strongest single signal for a CDN escalation.</div>
-    <div><code>BLOCKED</code> = HTTP 401/403/429/444/451/503 or an access-denied block page.</div>
+    <div><code>BLOCKED</code> = HTTP 403/429/444/451/503 or an access-denied block page (a real block).</div>
+    <div><code>AUTH_REQUIRED</code> = expected authentication — a <code>401</code> or a redirect to a known identity provider (Entra/Azure AD, Okta, Ping, Duo, ADFS). Deliberately <b>not</b> counted as a block or network failure.</div>
     <div><code>HUMAN_CHALLENGE</code> = visible captcha / “verify you are human” interstitial.</div>
     <div><code>BOT_CHALLENGE</code> = JS/sensor challenge state (<code>_abck challenged</code> / Cloudflare cf-chl).</div>
+    <div><code>reason:</code> = specific machine-readable cause (e.g. <code>DNS_FAILURE</code>, <code>TLS_FAILURE</code>, <code>TIMEOUT</code>, <code>HTTP_403</code>, <code>WAF_BLOCK</code>, <code>IP_REPUTATION</code>) · <code>FAILED_ONCE/TWICE/ALL</code> / <code>RECOVERED</code> = attempt history · <code>evidence:</code> = per-host network log / console / HAR for failed rows.</div>
     <div><code>edge:</code> = CDN edge IP that served the response · <code>layer:</code> = failed network layer (DNS/TCP/TLS/TIMEOUT/HTTP) for errors · <code>retry-after:</code> = throttle hint.</div>
     <div><code>Reference</code> = CDN/WAF trace ID to hand to support — Akamai <code>Reference #</code>/<code>errors.edgesuite.net</code>, Cloudflare <code>cf-ray</code>, or AWS CloudFront <code>x-amz-cf-id</code> (shown on failed rows).</div>
   </div>
