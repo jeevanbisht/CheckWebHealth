@@ -8,8 +8,9 @@ import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { diffHeaders, scoreConfidence } from "./probe-core.mjs";
+import { loadConfig } from "./config.mjs";
 
-const DIR = join("akamai-probe-results", "catalog");
+const DIR = loadConfig().outDir;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const VCLASS = { BLOCKED: "blocked", IP_REPUTATION: "iprep", HUMAN_CHALLENGE: "challenge", BOT_CHALLENGE: "challenge", AUTH_REQUIRED: "auth", AUTH: "auth", OK: "ok", ERROR: "err", OTHER: "other" };
 const BLOCKish = ["BLOCKED", "IP_REPUTATION", "HUMAN_CHALLENGE", "BOT_CHALLENGE"];

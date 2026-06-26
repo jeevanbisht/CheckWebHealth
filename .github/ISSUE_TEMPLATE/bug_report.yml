@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a reproducible CheckWebHealth problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      description: Please search existing issues before opening a new report.
+      options:
+        - label: I searched existing issues.
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and the observed behavior.
+      placeholder: The probe reported ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Repro steps
+      description: Provide the smallest repeatable set of steps.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: Windows 11, macOS 15, Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version (`node -v`)
+      placeholder: v20.15.1
+    validations:
+      required: true
+  - type: dropdown
+    id: browser-channel
+    attributes:
+      label: Browser channel
+      options:
+        - msedge
+        - chromium
+        - chrome
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: arm
+    attributes:
+      label: Arm
+      description: Which network arm was used when the issue occurred?
+      options:
+        - direct
+        - gsa
+        - other
+    validations:
+      required: true
+  - type: input
+    id: command-run
+    attributes:
+      label: Command run
+      placeholder: node bin/checkwebhealth.mjs probe --arm gsa --concurrency 4
+    validations:
+      required: true
+  - type: textarea
+    id: logs-output
+    attributes:
+      label: Logs/output
+      description: Paste relevant terminal output. Redact cookies, tokens, IPs, private URLs, and raw probe evidence.
+      render: shell
+    validations:
+      required: false

@@ -9,10 +9,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser, makeContext, captureEgress, probeOne, slugify } from "./probe-core.mjs";
+import { loadConfig } from "./config.mjs";
 
-const ARM = process.env.PROBE_ARM || "gsa";
-const HAR = process.env.HAR === "1"; // export a true per-host .har for each failed row
-const OUT_DIR = join("akamai-probe-results", "catalog");
+const cfg = loadConfig();
+const ARM = cfg.arm;
+const HAR = cfg.har; // export a true per-host .har for each failed row
+const OUT_DIR = cfg.outDir;
 const SHOT_DIR = join(OUT_DIR, "shots");
 const HAR_DIR = join(OUT_DIR, "har", ARM);
 if (HAR) mkdirSync(HAR_DIR, { recursive: true });
