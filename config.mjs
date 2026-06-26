@@ -16,6 +16,7 @@ export const DEFAULTS = {
     { id: "gsa", label: "Microsoft GSA" },
   ],
   arm: "gsa", // which path THIS run is exercising (PROBE_ARM)
+  seed: null, // fixed RNG seed for the sample probe (SEED); null => Date.now(). Share a seed across machines so each arm probes the SAME random sites and the A/B delta lines up.
   concurrency: 4, // parallel browser contexts
   retries: 2, // max attempts per site
   navTimeout: 25000, // ms per navigation
@@ -43,6 +44,7 @@ export function loadConfig(env = process.env, file = "probe.config.json") {
   const cfg = { ...DEFAULTS, ...fileCfg };
   // Environment variables win (operational overrides).
   if (env.PROBE_ARM) cfg.arm = env.PROBE_ARM;
+  if (env.SEED != null && env.SEED !== "") cfg.seed = num(env.SEED, cfg.seed);
   if (env.CONC != null) cfg.concurrency = num(env.CONC, cfg.concurrency);
   if (env.PROBE_RETRIES != null) cfg.retries = num(env.PROBE_RETRIES, cfg.retries);
   if (env.NAV_TIMEOUT != null) cfg.navTimeout = num(env.NAV_TIMEOUT, cfg.navTimeout);

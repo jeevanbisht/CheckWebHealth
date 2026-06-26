@@ -15,7 +15,7 @@ const OUT_DIR = cfg.outDir;
 const SHOT_DIR = join(OUT_DIR, "shots");
 mkdirSync(SHOT_DIR, { recursive: true });
 
-const seed = Date.now();
+const seed = cfg.seed ?? Date.now();
 function mulberry32(a) {
   return function () {
     let t = (a += 0x6d2b79f5);

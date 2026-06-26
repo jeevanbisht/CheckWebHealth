@@ -135,6 +135,21 @@ test("loadConfig ignores non-numeric env and keeps the default", () => {
   assert.equal(cfg.navTimeout, DEFAULTS.navTimeout);
 });
 
+test("loadConfig defaults seed to null (sample uses Date.now())", () => {
+  const cfg = loadConfig({}, "does-not-exist.json");
+  assert.equal(cfg.seed, null);
+});
+
+test("loadConfig: SEED env sets a fixed numeric seed for A/B sample parity", () => {
+  const cfg = loadConfig({ SEED: "12345" }, "does-not-exist.json");
+  assert.equal(cfg.seed, 12345);
+});
+
+test("loadConfig ignores empty/non-numeric SEED and keeps null", () => {
+  assert.equal(loadConfig({ SEED: "" }, "does-not-exist.json").seed, null);
+  assert.equal(loadConfig({ SEED: "abc" }, "does-not-exist.json").seed, null);
+});
+
 // ---- header diff ----------------------------------------------------------
 test("diffHeaders reports added, removed and changed headers", () => {
   const d = diffHeaders(

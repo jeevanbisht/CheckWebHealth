@@ -78,6 +78,35 @@ Start-Process .\akamai-probe-results\catalog\report-catalog.html
 With only one arm present the report renders single-arm (no delta). For a fast smoke test, run
 `npm run sample` (10 categories).
 
+### Two machines (GSA on one, off on the other)
+
+You can also run each arm on a **separate machine** — one inside the GSA tunnel, one on plain
+internet — then copy the JSON onto one box to render. The report scans `OUT_DIR` for every
+`results-<arm>.json` and lines arms up **per `category|host`**, so both machines must probe the
+**same hosts**:
+
+```powershell
+# Machine A — NO GSA (baseline)
+$env:PROBE_ARM="direct"; npm run probe          # -> results-direct.json
+
+# Machine B — WITH GSA (test)
+$env:PROBE_ARM="gsa";    npm run probe           # -> results-gsa.json
+
+# On one machine: drop both files into akamai-probe-results/catalog/ and render
+npm run report
+```
+
+`npm run probe` is deterministic (every catalog host), so the two arms always line up. If you'd
+rather smoke-test with `npm run sample` (10 **random** sites), pass the **same `SEED`** on both
+machines so each arm picks the identical sites — otherwise the delta is empty:
+
+```powershell
+$env:SEED="42"; $env:PROBE_ARM="direct"; npm run sample   # Machine A -> results-direct.json
+$env:SEED="42"; npm run sample                            # Machine B -> results-gsa.json
+```
+
+(The sample run prints its seed; copy that number to the other machine.)
+
 > **Concurrency defaults to `4` on purpose.** Hammering many CDN-fronted sites from one egress IP
 > itself trips rate/reputation limits and manufactures false blocks. Override with `CONC` only if you
 > understand the tradeoff: `$env:CONC=2; npm run probe`.
@@ -140,6 +169,7 @@ Key environment variables (full list in the Runbook):
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa` / any path id). |
+| `SEED` | unset | Fixed RNG seed for `npm run sample`. Share one seed across machines so each arm probes the **same** random sites (so the A/B delta lines up). Unset => `Date.now()`. |
 | `CONC` | `4` | Parallel browser contexts. Keep modest. |
 | `PROBE_RETRIES` | `2` | Max attempts per site. Transient `429/503` are retried; the full attempt history is recorded. |
 | `NAV_TIMEOUT` | `25000` | Per-navigation timeout (ms). |
