@@ -415,6 +415,30 @@ export async function captureEgress(ctx) {
   return out;
 }
 
+// Capture the run/arm browser ENVIRONMENT for trust scoring (diagnosis.mjs):
+// navigator-level signals (webdriver, engine, Edge version, client hints, UA)
+// plus the context's cookie count. Origin-specific storage is intentionally not
+// sampled here (it's a weak run-level signal); cookies present in the context is
+// the meaningful "real session" signal. jsOk=false means the page script failed.
+export async function captureEnvironment(ctx) {
+  const out = { webdriver: null, engine: "", edgeVersion: "", clientHintsPresent: null, userAgent: "", cookiesPresent: 0, jsOk: true };
+  try {
+    const { collectSnapshot } = await import("./browser-parity.mjs");
+    const page = await ctx.newPage();
+    try {
+      await page.goto("about:blank").catch(() => {});
+      const snap = await collectSnapshot(page);
+      out.webdriver = snap.webdriver;
+      out.engine = snap.engine;
+      out.edgeVersion = snap.edgeVersion;
+      out.clientHintsPresent = snap.clientHintsPresent;
+      out.userAgent = snap.userAgent;
+    } finally { await page.close().catch(() => {}); }
+    try { out.cookiesPresent = (await ctx.cookies()).length; } catch { /* keep 0 */ }
+  } catch { out.jsOk = false; }
+  return out;
+}
+
 // Build the full redirect chain with per-hop detail: each hop records the URL,
 // HTTP status (3xx for the redirects, final status for the landing response),
 // the Location header, the scheme/protocol, and the hop's response time (ms).

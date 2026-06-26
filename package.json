@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "setup": "playwright install chromium msedge",
-    "test": "node --test tests/probe-core.test.mjs tests/cli.test.mjs tests/browser-parity.test.mjs",
+    "test": "node --test tests/probe-core.test.mjs tests/cli.test.mjs tests/browser-parity.test.mjs tests/diagnosis.test.mjs",
     "checkwebhealth": "node bin/checkwebhealth.mjs",
     "doctor": "node bin/checkwebhealth.mjs doctor",
     "parity": "node bin/checkwebhealth.mjs parity",

@@ -23,6 +23,7 @@ Born from a real case: `automobiles.honda.com` returned an **Akamai Bot Manager 
 - [Two machines (GSA on one, off on the other)](#two-machines-gsa-on-one-off-on-the-other)
 - [Configuration](#configuration)
 - [Interpreting results](#interpreting-results)
+- [Diagnostic pipeline](#diagnostic-pipeline)
 - [JSON output schema](#json-output-schema)
 - [The report](#the-report)
 - [Supported environments](#supported-environments)
@@ -358,6 +359,23 @@ Environment variables (equivalent to the flags, for the `npm run *` workflow):
 | `ERROR` | Navigation failed — see the `layer:` (DNS/TCP/TLS/TIMEOUT/HTTP). |
 
 The **Confidence** column (5–99%) rates how trustworthy each diagnosis is: corroborated across paths, consistent across attempts, and strong-signal failures score high; single-path, timeout or DNS flakes score low. Hover any score for its contributing factors.
+
+---
+
+## Diagnostic pipeline
+
+CheckWebHealth behaves like an enterprise troubleshooting framework, not a bare HTTP-status classifier. It answers six questions **in order**, and **never** issues a strong network-path conclusion while the diagnostic browser itself is untrusted:
+
+1. **Can the diagnostic browser be trusted?** — *Stage 1*. A **Browser Trust Score** (0–100) from headed/headless, profile type, `navigator.webdriver`, cookies, client hints, engine/version → a **Browser Environment** gate: `PASS` (≥70 — Trusted/Mostly Trusted) · `WARNING` (40–69 — Questionable) · `FAILED` (<40 — Untrusted).
+2. **Is the Direct-vs-GSA comparison valid?** — *Stage 2*: `VALID_PATH_COMPARISON` (a control path works) · `TOOL_BROWSER_BLOCKED` (every path fails on an untrusted/automation-rejected browser) · `INCONCLUSIVE_BOTH_PATHS_FAILED` · `MANUAL_BROWSER_REQUIRED` · `AUTH_REQUIRED` · `CLIENT_POSTURE_REQUIRED`.
+3. **What is the root cause?** — *Stage 3, only when valid*: IP Reputation · Network · DNS · TLS · WAF · CDN · Application · Authentication.
+4. **How reliable is this conclusion?** — `HIGH` / `MEDIUM` / `LOW` / `INCONCLUSIVE`.
+5. **What evidence supports it?** — HTTP status, vendor, `Reference #`, `_abck`, screenshot, manual-browser result — kept **separate** from the diagnosis.
+6. **What should the user do next?** — a concrete recommended action.
+
+> **The cardinal rule.** A site that fails on **both** Direct and GSA while your manual browser works is the *tool browser* being blocked — diagnosed **`AUTOMATION_OR_BROWSER_POSTURE`** / **`TOOL_BROWSER_BLOCKED`**, *never* `IP_REPUTATION`. `IP_REPUTATION` is emitted only when the browser is trusted (`PASS`), the comparison is valid, a control path succeeds, and the evidence is a hard `403`/`451` with `_abck` passed.
+
+The report renders a per-arm **Browser Environment + Trust Score** panel and, on each row, a **Diagnosis** block (primary diagnosis · reliability · the four confidences — diagnosis / evidence / browser-trust / path-reliability · recommendation). The raw `verdict` column remains as **evidence**. Raise trust to `PASS` by re-running headed (`checkwebhealth validate`) before escalating.
 
 ---
 

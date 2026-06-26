@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CATALOG } from "../core/sites-catalog.mjs";
 import { loadConfig } from "../core/config.mjs";
-import { launchProbeEnvironment, captureEgress, probeOne } from "../core/probe-core.mjs";
+import { launchProbeEnvironment, captureEgress, captureEnvironment, probeOne } from "../core/probe-core.mjs";
 
 const cfg = loadConfig();
 const ARM = cfg.arm;
@@ -39,10 +39,12 @@ if (meta.mode === "manual-parity") {
 
 const egress = await captureEgress(env.egressContext);
 console.log(`Egress: ${egress.ip || "?"} ${egress.org || ""} (${egress.source})`);
+const environment = await captureEnvironment(env.egressContext);
+console.log(`Browser env: webdriver=${environment.webdriver} engine=${environment.engine || "?"} cookies=${environment.cookiesPresent}`);
 
 function writeOut() {
   const present = results.filter(Boolean);
-  const payload = { meta: { arm: ARM, paths: cfg.paths, browser: meta, egress, startedAt: new Date(t0).toISOString(), finishedAt: new Date().toISOString() }, results: present };
+  const payload = { meta: { arm: ARM, paths: cfg.paths, browser: meta, environment, cookiesPresent: environment.cookiesPresent, egress, startedAt: new Date(t0).toISOString(), finishedAt: new Date().toISOString() }, results: present };
   writeFileSync(join(OUT_DIR, `results-${ARM}.json`), JSON.stringify(payload, null, 0));
   writeFileSync(join(OUT_DIR, "results-catalog.json"), JSON.stringify(present, null, 0));
 }

@@ -9,6 +9,10 @@ import { join } from "node:path";
 
 import { diffHeaders, scoreConfidence } from "../core/probe-core.mjs";
 import { loadConfig } from "../core/config.mjs";
+import {
+  diagnoseHost, scoreBrowserTrust, browserEnvironmentStatus, envFromMeta,
+  PRIMARY, BROWSER_ENV,
+} from "../core/diagnosis.mjs";
 
 const DIR = loadConfig().outDir;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -65,6 +69,39 @@ function headerDiffFor(r) {
 }
 function confClass(score) { return score >= 80 ? "ok" : score >= 55 ? "challenge" : "err"; }
 
+// ---- staged diagnosis layer (diagnosis.mjs) --------------------------------
+// Per-arm browser environment + trust (Stage 1), computed once from each arm's
+// run meta. The primary arm's environment drives per-host diagnosis.
+const armTrust = {}, armStatus = {}, armEnv = {};
+for (const arm of armNames) {
+  const e = envFromMeta(arms[arm].meta || {});
+  armEnv[arm] = e;
+  armTrust[arm] = scoreBrowserTrust(e);
+  armStatus[arm] = browserEnvironmentStatus(e, armTrust[arm]);
+}
+const primaryEnv = armEnv[primaryArm] || {};
+const diagCache = {};
+function diagnosisFor(r) {
+  const k = keyOf(r);
+  return (diagCache[k] ||= diagnoseHost({ perPath: hostIdx[k] || { [primaryArm]: r }, env: primaryEnv, primaryArm, baselineArm }));
+}
+// Diagnosis -> badge colour. AUTOMATION_OR_BROWSER_POSTURE is highlighted (it
+// supersedes a network claim). Reliability has its own colour scale.
+const PDCLASS = { AUTOMATION_OR_BROWSER_POSTURE: "iprep", IP_REPUTATION: "iprep", NETWORK: "blocked", DNS: "blocked", TLS: "blocked", WAF: "challenge", CDN: "challenge", APPLICATION: "other", AUTHENTICATION: "auth", NO_FAULT: "ok" };
+const RELCLASS = { HIGH: "ok", MEDIUM: "challenge", LOW: "err", INCONCLUSIVE: "other" };
+function diagSummarize(rows) {
+  const d = { browserBlocked: 0, ipReputation: 0, network: 0, valid: 0, inconclusive: 0, relHigh: 0, relLow: 0 };
+  for (const r of rows) {
+    const dg = diagnosisFor(r);
+    if (dg.primaryDiagnosis === PRIMARY.BROWSER_POSTURE) d.browserBlocked++;
+    else if (dg.primaryDiagnosis === PRIMARY.IP_REPUTATION) d.ipReputation++;
+    else if (dg.primaryDiagnosis === PRIMARY.NETWORK || dg.primaryDiagnosis === PRIMARY.DNS || dg.primaryDiagnosis === PRIMARY.TLS) d.network++;
+    if (dg.reliability === "HIGH") d.relHigh++;
+    if (dg.reliability === "LOW" || dg.reliability === "INCONCLUSIVE") d.relLow++;
+  }
+  return d;
+}
+
 function deltaFor(r) {
   if (!dual) return null;
   const b = baseIdx[r.category + "|" + r.host];
@@ -97,6 +134,7 @@ function summarize(rows) {
   return s;
 }
 const overall = summarize(results);
+const diagOverall = diagSummarize(results);
 
 function pill(v, n) { return `<span class="badge ${VCLASS[v] || "other"}">${v} ${n}</span>`; }
 
@@ -128,6 +166,16 @@ function detailCell(r) {
   const hdHtml = hd.length
     ? `<div class="small">Δ headers vs ${esc(baselineArm)}: ${hd.map((d) => `<span class="tag">${esc(d.key)}: ${esc(d.a ?? "∅")} → ${esc(d.b ?? "∅")}</span>`).join(" ")}</div>`
     : "";
+  // Staged diagnosis (diagnosis.mjs): the trust-gated conclusion that sits on top
+  // of the raw evidence verdict. AUTOMATION_OR_BROWSER_POSTURE supersedes a
+  // network claim when the diagnostic browser itself is the likely cause.
+  const dg = diagnosisFor(r);
+  const sec = dg.secondaryReason ? ` <span class="tag">${esc(dg.secondaryReason)}</span>` : "";
+  const diagHtml = `<div class="diagbox">
+      <div><b>Diagnosis</b> <span class="badge ${PDCLASS[dg.primaryDiagnosis] || "other"}">${esc(dg.primaryDiagnosis)}</span> <span class="badge ${RELCLASS[dg.reliability] || "other"}">${esc(dg.reliability)}</span> <span class="tag">path:${esc(dg.pathValidity)}</span>${sec}</div>
+      <div class="small">confidence — diagnosis ${dg.confidence.diagnosis}% · evidence ${dg.confidence.evidence}% · trust ${dg.confidence.browserTrust}% · path ${dg.confidence.pathReliability}%</div>
+      <div class="small">→ ${esc(dg.recommendation)}</div>
+    </div>`;
   return `<a href="${esc(r.url)}" target="_blank">${esc(r.host)}</a>${edge}${layer}${reason}${pass}${retry}${recovered}${recheck}
     <div class="small">probe <b>${probeMark}</b>: <span class="mono">${esc(r.probeUrl || r.url)}</span></div>
     <div class="small">final <b>${finalMark}</b>: <span class="mono">${esc(r.finalUrl || r.url)}</span>${r.redirected ? " <b>(redirected)</b>" : ""}</div>
@@ -135,7 +183,8 @@ function detailCell(r) {
     ${waf ? `<div class="small mono">${waf}</div>` : ""}
     ${hdHtml}
     ${evLinks}
-    <div class="small">${esc(r.title || "")}</div>`;
+    <div class="small">${esc(r.title || "")}</div>
+    ${diagHtml}`;
 }
 
 function thumb(r) {
@@ -154,7 +203,7 @@ function deltaCell(r) {
 function rowTr(r, withCategory) {
   const d = dual ? deltaFor(r) : "";
   const c = confidenceFor(r);
-  return `<tr class="${VCLASS[r.verdict] || "other"}" data-verdict="${esc(r.verdict)}" data-vendor="${esc(r.vendor)}" data-status="${esc(r.status)}" data-delta="${esc(d)}">
+  return `<tr class="${VCLASS[r.verdict] || "other"}" data-verdict="${esc(r.verdict)}" data-vendor="${esc(r.vendor)}" data-status="${esc(r.status)}" data-delta="${esc(d)}" data-diagnosis="${esc(diagnosisFor(r).primaryDiagnosis)}">
     ${withCategory ? `<td class="small">${esc(r.category)}</td>` : ""}
     <td><span class="badge ${VCLASS[r.verdict] || "other"}">${esc(r.verdict)}</span></td>
     <td class="mono">${esc(r.status)}</td>
@@ -293,6 +342,26 @@ function egressLine(arm) {
   return `<div class="egress"><b>${esc(arm)}</b> · egress <span class="mono">${esc(e.ip || "?")}</span> ${esc(e.org || "")} ${esc(e.country || "")} · browser ${esc(b.channel || "?")} headless=${esc(String(b.headless))} ${browserBits} · ${esc(m.finishedAt || "")}</div>`;
 }
 
+// Stage 1 — Browser Environment + Trust panel (per arm). PASS/WARNING/FAILED gate
+// whether the engine should issue strong network-path conclusions.
+const ENVCLASS = { PASS: "ok", WARNING: "challenge", FAILED: "blocked" };
+function trustPanel() {
+  const cards = armNames.map((arm) => {
+    const t = armTrust[arm], st = armStatus[arm], e = armEnv[arm];
+    const sig = [`headless=${e.headless}`, `profile=${esc(e.profileType || "?")}`, `webdriver=${e.webdriver}`, `cookies=${e.cookiesPresent ?? "?"}`, e.engine ? `engine=${esc(e.engine)}` : "", e.edgeVersion ? `v${esc(e.edgeVersion)}` : ""].filter(Boolean).join(" · ");
+    return `<div class="trustcard">
+      <div><b>${esc(arm)}</b> browser environment <span class="badge ${ENVCLASS[st] || "other"}">${esc(st)}</span></div>
+      <div class="small">Browser Trust Score <b>${t.score}%</b> — ${esc(t.band)}</div>
+      <div class="small mono">${sig}</div>
+    </div>`;
+  }).join("");
+  return `<div class="trustpanel">${cards}</div>`;
+}
+const primaryStatus = armStatus[primaryArm];
+const trustCaveat = primaryStatus !== BROWSER_ENV.PASS
+  ? `<div class="headline" style="border-left-color:var(--challenge)">⚠ Stage 1 — the diagnostic browser for <b>${esc(primaryArm)}</b> is <b>${esc(primaryStatus)}</b> (trust ${armTrust[primaryArm].score}%). Network-path diagnoses are de-rated, and sites that fail on <b>every</b> path are reported as <code>AUTOMATION_OR_BROWSER_POSTURE</code> (tool-browser blocked), not <code>IP_REPUTATION</code>. Re-run headed (<code>checkwebhealth validate</code>) to raise trust before escalating.</div>`
+  : "";
+
 const now = new Date().toISOString();
 const headline = dual
   ? `${overall.networkCaused} NETWORK-CAUSED block(s) — sites that load on a direct connection but fail through GSA.`
@@ -312,6 +381,10 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .headline{background:#1b2433;border:1px solid var(--line);border-left:3px solid var(--blocked);border-radius:8px;padding:10px 14px;margin:8px 0 14px;font-weight:600}
   .egressbar{display:flex;flex-direction:column;gap:3px;margin:6px 0 14px;font-size:12px;color:var(--mut)}
   .egress .mono{color:var(--ink)}
+  .trustpanel{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px}
+  .trustcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:240px}
+  .diagbox{margin-top:8px;padding:7px 9px;background:#0f141c;border:1px solid var(--line);border-left:3px solid var(--iprep);border-radius:6px}
+  .diagbox b{color:var(--ink)}
   .cards{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;min-width:104px}
   .kpi .n{font-size:22px;font-weight:700}.kpi .l{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
@@ -364,8 +437,18 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   <h1>GSA × CDN / Bot-Manager — Site Probe</h1>
   <p class="sub">${results.length} sites · ${categories.length} categories · arms: ${esc(armNames.join(", "))} · ${esc(now)}</p>
   <div class="headline">${esc(headline)}</div>
+  ${trustCaveat}
   <div class="egressbar">${armNames.map(egressLine).join("")}</div>
+  ${trustPanel()}
   ${diagBar}
+
+  <div class="cards diagcards">
+    <div class="kpi iprep"><div class="n">${diagOverall.browserBlocked}</div><div class="l">Tool-browser blocked</div></div>
+    <div class="kpi iprep"><div class="n">${diagOverall.ipReputation}</div><div class="l">IP reputation (gated)</div></div>
+    <div class="kpi blocked"><div class="n">${diagOverall.network}</div><div class="l">Network / DNS / TLS</div></div>
+    <div class="kpi ok"><div class="n">${diagOverall.relHigh}</div><div class="l">High reliability</div></div>
+    <div class="kpi err"><div class="n">${diagOverall.relLow}</div><div class="l">Low / inconclusive</div></div>
+  </div>
 
   <div class="cards">
     ${dual ? `<button class="kpi kpi-filter blocked" data-filter="delta:NETWORK-CAUSED"><div class="n">${overall.networkCaused}</div><div class="l">Network-caused</div></button>` : ""}
@@ -389,6 +472,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   </div>
   <div class="filter-state" id="filterState">Showing <b>all rows</b>. Click a verdict card and/or a vendor chip — they combine (e.g. OK + Akamai).</div>
   <div class="legend">
+    <div><b>Diagnostic pipeline</b> (per row, under <b>Diagnosis</b>): <b>Stage 1</b> Browser Environment <code>PASS/WARNING/FAILED</code> + Trust Score → <b>Stage 2</b> Path Comparison <code>VALID</code> / <code>TOOL_BROWSER_BLOCKED</code> / <code>INCONCLUSIVE</code> / <code>AUTH</code> → <b>Stage 3</b> root cause. <code>AUTOMATION_OR_BROWSER_POSTURE</code> = every automated path failed while the browser isn't trusted ⇒ the <i>tool browser</i> is blocked, not the network. <code>IP_REPUTATION</code> is only emitted when the browser is trusted, the comparison is valid, and a control path succeeds.</div>
     <div><code>NETWORK-CAUSED</code> = loads OK on the <b>direct</b> baseline but fails through <b>GSA</b> — the actionable, network-attributable failures.</div>
     <div><code>IP_REPUTATION</code> = bot sensor validated the browser (<code>_abck passed</code>) yet the request was still denied ⇒ block is keyed on egress IP/ASN, not the browser. Strongest single signal for a CDN escalation.</div>
     <div><code>BLOCKED</code> = HTTP 403/429/444/451/503 or an access-denied block page (a real block).</div>
