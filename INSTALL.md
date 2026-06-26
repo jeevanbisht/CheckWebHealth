@@ -4,6 +4,8 @@ Setup instructions to run the 50-category / 2,500-site CDN & Bot-Manager probe o
 **fresh machine** (e.g., a workstation behind GSA). For *what it does* and *how to interpret
 results*, see `GSA-Catalog-Probe-Runbook.md`.
 
+> **Which terminal?** Every command in this guide works the same in **Windows Command Prompt (`cmd`)** and **PowerShell** — the examples pass flags (e.g. `--arm gsa`) instead of shell-specific environment variables, so you don't need `set` or `$env:`. If you prefer the `npm run` scripts (which read env vars), set them per shell — PowerShell: `$env:PROBE_ARM='gsa'`; `cmd`: `set PROBE_ARM=gsa`. **When in doubt, open PowerShell** (Start → *Terminal*, or *Windows PowerShell*) and follow along.
+
 ---
 
 ## 1. Get the files
@@ -84,7 +86,9 @@ sudo npx playwright install-deps chromium
 
 ## 4. Verify the install
 
-```powershell
+These commands are identical in **Windows Command Prompt (`cmd`)** and **PowerShell** — run them from the kit folder:
+
+```
 node --version
 npm ls playwright
 node -e "import('./src/core/sites-catalog.mjs').then(m=>console.log('catalog OK:', Object.keys(m.CATALOG).length,'categories,', Object.values(m.CATALOG).flat().length,'sites'))"
@@ -92,10 +96,10 @@ node -e "import('./src/core/sites-catalog.mjs').then(m=>console.log('catalog OK:
 
 Expected: `catalog OK: 50 categories, 2500 sites`
 
-Quick smoke test (10-category sample, ~1 min) — optional:
+Quick smoke test (10-category sample, ~1 min) — optional. Use the `--arm` flag so it works the same in `cmd` and PowerShell (no `set` / `$env:` needed):
 
-```powershell
-$env:PROBE_ARM="gsa"; npm run sample
+```
+node bin/checkwebhealth.mjs sample --arm gsa
 ```
 Confirms the browser launches, captures the egress IP, and writes results.
 
@@ -103,18 +107,18 @@ Confirms the browser launches, captures the egress IP, and writes results.
 
 ## 5. Run — A/B (direct baseline vs GSA)
 
-Run the **same probe twice**, once off-GSA and once on-GSA; the report diffs them.
+Run the **same probe twice**, once off-GSA and once on-GSA; the report diffs them. These commands work the same in `cmd` and PowerShell:
 
-```powershell
-$env:PROBE_ARM="direct"; npm run probe   # GSA OFF — baseline
-$env:PROBE_ARM="gsa";    npm run probe   # GSA ON  — test
-npm run report                           # merges both arms, builds HTML
+```
+node bin/checkwebhealth.mjs probe --arm direct   # GSA OFF — baseline
+node bin/checkwebhealth.mjs probe --arm gsa      # GSA ON  — test
+node bin/checkwebhealth.mjs report               # merges both arms, builds HTML
 ```
 
-> **Three ways to invoke any command:** `npm run <cmd>` (the scripted steps below), `node bin/checkwebhealth.mjs <cmd>` (always works from a fresh clone), or `checkwebhealth <cmd>` after a global install (`npm i -g .`). This guide uses `npm run` for scripted steps and `node bin/checkwebhealth.mjs` for commands without an npm script.
+> **Invoking commands (cmd or PowerShell):** this guide uses `node bin/checkwebhealth.mjs <cmd>` with flags like `--arm gsa`, which behaves identically in **Windows `cmd`** and **PowerShell**. You can also install globally (`npm i -g .`) and call `checkwebhealth <cmd>`, or use the npm scripts `npm run probe|sample|report` — but those read **env vars**, which differ per shell: PowerShell `$env:PROBE_ARM='gsa'`, cmd `set PROBE_ARM=gsa`.
 
 Concurrency defaults to **4** (keep it modest — high concurrency from one egress IP manufactures
-false rate-limit blocks). A quick 10-category smoke test: `npm run sample`.
+false rate-limit blocks). A quick 10-category smoke test: `node bin/checkwebhealth.mjs sample --arm gsa`.
 
 Outputs land in:
 
@@ -125,23 +129,18 @@ checkwebhealth-results/catalog/results-catalog.json   # last arm (legacy single-
 checkwebhealth-results/catalog/report-catalog.html    # open in a browser
 ```
 
-Open the report:
+Open the report (or just double-click `report-catalog.html` in File Explorer):
 
-```powershell
-# Windows
-Start-Process .\checkwebhealth-results\catalog\report-catalog.html
-# macOS
-open ./checkwebhealth-results/catalog/report-catalog.html
-# Linux
-xdg-open ./checkwebhealth-results/catalog/report-catalog.html
-```
+- **Windows `cmd`:** `start "" .\checkwebhealth-results\catalog\report-catalog.html`
+- **Windows PowerShell:** `Invoke-Item .\checkwebhealth-results\catalog\report-catalog.html`
+- **macOS:** `open ./checkwebhealth-results/catalog/report-catalog.html`
+- **Linux:** `xdg-open ./checkwebhealth-results/catalog/report-catalog.html`
 
 ### Adjust concurrency (keep it low)
 High concurrency from one egress IP looks like a scraper and triggers false rate-limit blocks. The
 default is 4 for trustworthy results.
-```powershell
-# PowerShell
-$env:CONC=2; npm run probe
+```
+node bin/checkwebhealth.mjs probe --arm gsa --concurrency 2
 ```
 
 ## 6. Validate the browser environment (strip false positives)
