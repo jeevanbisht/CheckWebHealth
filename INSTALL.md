@@ -111,6 +111,8 @@ $env:PROBE_ARM="gsa";    npm run probe   # GSA ON  — test
 npm run report                           # merges both arms, builds HTML
 ```
 
+> **Three ways to invoke any command:** `npm run <cmd>` (the scripted steps below), `node bin/checkwebhealth.mjs <cmd>` (always works from a fresh clone), or `checkwebhealth <cmd>` after a global install (`npm i -g .`). This guide uses `npm run` for scripted steps and `node bin/checkwebhealth.mjs` for commands without an npm script.
+
 Concurrency defaults to **4** (keep it modest — high concurrency from one egress IP manufactures
 false rate-limit blocks). A quick 10-category smoke test: `npm run sample`.
 
@@ -134,6 +136,14 @@ open ./checkwebhealth-results/catalog/report-catalog.html
 xdg-open ./checkwebhealth-results/catalog/report-catalog.html
 ```
 
+### Adjust concurrency (keep it low)
+High concurrency from one egress IP looks like a scraper and triggers false rate-limit blocks. The
+default is 4 for trustworthy results.
+```powershell
+# PowerShell
+$env:CONC=2; npm run probe
+```
+
 ## 6. Validate the browser environment (strip false positives)
 
 A **headless** probe can't tell egress-IP reputation apart from headless-bot detection — Akamai/Cloudflare/PerimeterX
@@ -142,23 +152,16 @@ report's diagnostic pipeline (browser trust → path validity → root cause) ca
 diagnostic browser being blocked:
 
 ```powershell
-checkwebhealth validate --arm gsa                   # re-probe IP_REPUTATION rows headed
-checkwebhealth validate --arm gsa --include-blocked # also BLOCKED / challenge rows
-checkwebhealth report                               # refresh verdicts + diagnoses
+# (no npm script for validate — use the CLI entry point)
+node bin/checkwebhealth.mjs validate --arm gsa                    # re-probe IP_REPUTATION rows headed
+node bin/checkwebhealth.mjs validate --arm gsa --include-blocked  # also BLOCKED / challenge rows
+npm run report                                                    # refresh verdicts + diagnoses
 ```
 
 Suspects that load fine headed are promoted to `OK` (`automationFalsePositive`); those still denied headed are kept
 (`headedConfirmed`). The report shows a per-arm **Browser Environment + Trust Score** panel and a per-row **Diagnosis**
 block. When the browser isn't trusted (e.g. a headless run), sites that fail on **every** path are reported as
 `AUTOMATION_OR_BROWSER_POSTURE` / `TOOL_BROWSER_BLOCKED` — never `IP_REPUTATION`.
-
-### Adjust concurrency (keep it low)
-High concurrency from one egress IP looks like a scraper and triggers false rate-limit blocks. The
-default is 4 for trustworthy results.
-```powershell
-# PowerShell
-$env:CONC=2; npm run probe
-```
 
 ---
 
@@ -171,7 +174,7 @@ $env:CONC=2; npm run probe
 | `browserType.launch: Executable doesn't exist` | Run `npm run setup` (`playwright install chromium msedge`). |
 | Linux: launch fails on missing `.so` libs | `sudo npx playwright install-deps`. |
 | Corporate proxy blocks the browser download | Set `HTTPS_PROXY`/`HTTP_PROXY` env vars, or pre-stage the Playwright browsers cache. |
-| Many `ERROR` rows | Check the `layer:` tag in the report (DNS/TLS/TCP = network path, not WAF). Raise `navTimeout` in `probe-core.mjs`, re-run. |
+| Many `ERROR` rows | Check the `layer:` tag in the report (DNS/TLS/TCP = network path, not WAF). Raise the per-navigation timeout (`--nav-timeout 40000` or `$env:NAV_TIMEOUT=40000`), re-run. |
 | High RAM / machine struggles | Lower concurrency: `CONC=2`. |
 | Edge not found | `npm run setup`, or set `PROBE_CHANNEL=chromium` to use bundled Chromium. |
 
