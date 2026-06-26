@@ -40,7 +40,7 @@ Born from a real case: `automobiles.honda.com` returned an **Akamai Bot Manager 
 A bare `403` from one vantage point proves nothing. This tool is built around the two signals that *do* hold up when escalated to a CDN/WAF vendor:
 
 1. **`NETWORK-CAUSED`** — the site loads `OK` on a **direct** connection but fails through **GSA**. Run the same probe twice (off-tunnel baseline + on-tunnel test); the report diffs the two arms. These are the only rows that prove the *network path* is the cause.
-2. **`IP_REPUTATION`** — the Akamai bot sensor cookie (`_abck`) is **passed** (browser fingerprint accepted), yet the request is still denied ⇒ the block is driven by **egress-IP/ASN reputation**, not the browser. Paired with the captured **egress IP + ASN** and the CDN **`Reference #`**, this is a traceable hand-off the vendor can look up in their logs.
+2. **`IP_REPUTATION`** — the bot sensor cookie (`_abck`) is **passed** yet the request is still denied with a hard status (`403`/`451`). **Confirm it headed first** (`checkwebhealth validate`): a *headless* probe can't separate egress-IP reputation from headless-bot detection, so only a **headed-confirmed** denial is defensible. Once confirmed, pair it with the captured **egress IP + ASN** and the CDN **`Reference #`** for a traceable vendor hand-off. (`429`/`503` throttle and interactive slider challenges are **not** `IP_REPUTATION`.)
 
 > **Authentication is not a block.** A `401`, or a redirect to a known identity provider (Microsoft Entra/Azure AD, Okta, Ping, Duo, ADFS), is classified as `AUTH_REQUIRED` — never as a `BLOCKED` or `NETWORK-CAUSED` failure.
 
@@ -143,6 +143,7 @@ With only one arm present the report renders single-arm (no delta). For a fast s
 | `checkwebhealth sample` | Quick sample probe (`--seed` for cross-machine parity). |
 | `checkwebhealth report` | Build the HTML report (`--open` to launch it). |
 | `checkwebhealth evidence` | Re-screenshot the non-`OK` rows of a run (`--har`). |
+| `checkwebhealth validate` | **Headed re-validation**: re-probe automation-suspect rows headed to strip headless/challenge false positives (`--include-blocked`). |
 | `checkwebhealth parity <url>` | **Manual Browser Parity**: compare your real Edge profile against a temporary automated profile (`--open`). |
 | `checkwebhealth config` | Print the effective, resolved configuration. |
 | `checkwebhealth version` | Print the installed version. |
@@ -152,17 +153,18 @@ Common flags (run `checkwebhealth help <command>` for the full list):
 
 | Flag | Applies to | Purpose |
 |------|------------|---------|
-| `--arm <id>` | probe · sample · evidence | Path id this run exercises (`direct`, `gsa`, …). |
+| `--arm <id>` | probe · sample · evidence · validate | Path id this run exercises (`direct`, `gsa`, …). |
 | `-c, --concurrency <n>` | probe | Parallel browser contexts (default `4`). |
-| `--retries <n>` | probe · sample | Max attempts per site (transient `429/503` retried). |
-| `--nav-timeout <ms>` | probe · sample | Per-navigation timeout. |
-| `--settle <ms>` | probe · sample | Settle time before reading page state. |
-| `--channel <ch>` | probe · sample · evidence | `msedge` / `chrome` / `chromium`. |
+| `--retries <n>` | probe · sample · validate | Max attempts per site (transient `429/503` retried). |
+| `--nav-timeout <ms>` | probe · sample · validate | Per-navigation timeout. |
+| `--settle <ms>` | probe · sample · validate | Settle time before reading page state. |
+| `--channel <ch>` | probe · sample · evidence · parity · validate | `msedge` / `chrome` / `chromium`. |
 | `--headed` | probe · sample · evidence | Visible (headed) browser. |
 | `--shots <mode>` | probe | `all` / `fail` / `none`. |
 | `--parity` | probe · sample | Run this arm through **manual-parity Edge** (your real profile via a safe copy; no stealth). |
 | `--seed <n>` | sample | Fix the RNG so two machines pick the same sites. |
 | `--har` | evidence | Export a per-host `.har` for each failed row. |
+| `--include-blocked` | validate | Re-validate `BLOCKED`/challenge rows too, not just `IP_REPUTATION`. |
 | `--url <url>` | parity | Target URL to compare (default `https://www.bing.com`). |
 | `--mode <m>` | parity | `manual-parity` (real profile) or `automated` (temp profile). |
 | `--profile-directory <p>` | parity · doctor | Edge profile: `Default`, `"Profile 1"`, … |
@@ -231,6 +233,22 @@ checkwebhealth report --open
 ```
 
 This combines **both** diagnostic dimensions — the **network path** (`--arm direct` vs `gsa`) *and* the **browser posture** (real profile vs temp). To protect your real browser, parity-probe always runs through a **safe copied** diagnostic profile (real cookies at copy time, but writes never go back to your real profile), so a 2,500-site run won't pollute your history. The report's per-arm line shows `mode=manual-parity profile=copied` so viewers know real state was used. Keep `--concurrency` modest in parity mode.
+
+### Headed re-validation (strip headless / challenge false positives)
+
+A *headless* probe **can't tell egress-IP reputation apart from headless-bot detection** — Akamai / Cloudflare / PerimeterX deny or challenge a headless browser on **any** IP, so a fast catalog run mislabels those rows `IP_REPUTATION`. `checkwebhealth validate` re-probes the automation-suspect rows of an existing run with a **headed** real-Edge profile (matching a human) and rewrites the verdict:
+
+```bash
+checkwebhealth validate --arm gsa                   # IP_REPUTATION rows (default)
+checkwebhealth validate --arm gsa --include-blocked # + BLOCKED / challenges
+checkwebhealth report                               # refresh verdicts + NETWORK-CAUSED
+```
+
+- A suspect that loads **OK headed** is promoted to `OK` (`automationFalsePositive: true`) — it was a headless/timing artifact.
+- A suspect **still denied headed** is kept and marked `headedConfirmed: true` — only these `IP_REPUTATION`/`BLOCKED` verdicts are escalation-grade.
+- Rows record `headlessVerdict` / `headedVerdict` / `headedStatus` for provenance; re-render with `report` to refresh the delta.
+
+Headed runs open a visible Edge window and go one site at a time, so `validate` targets the suspect rows (the default `IP_REPUTATION` set), not the whole catalog.
 
 ---
 
@@ -331,10 +349,10 @@ Environment variables (equivalent to the flags, for the `npm run *` workflow):
 | Verdict | Meaning |
 |---------|---------|
 | `NETWORK-CAUSED` | Loads `OK` on the **direct** baseline but fails through **GSA** — the actionable, network-attributable failures. |
-| `IP_REPUTATION` | Bot sensor validated the browser (`_abck passed`) yet the request was still denied ⇒ block keyed on egress IP/ASN. Strongest single signal for a CDN escalation. |
-| `BLOCKED` | HTTP 403/429/444/451/503 or an access-denied block page (a real block). |
+| `IP_REPUTATION` | `_abck passed` yet a hard `403`/`451` denial ⇒ candidate egress-IP/ASN block. **Re-validate headed** (`checkwebhealth validate`) — a headless probe can't prove this; only `headedConfirmed` rows are escalation-grade. |
+| `BLOCKED` | HTTP 403/429/444/451/503 or an access-denied block page (a real block; `429`/`503` are throttle/overload). |
 | `AUTH_REQUIRED` | Expected authentication — a `401` or a redirect to a known IdP. Deliberately **not** a block. |
-| `HUMAN_CHALLENGE` | Visible captcha / "verify you are human" interstitial. |
+| `HUMAN_CHALLENGE` | Visible captcha or an interactive slider / "press & hold" wall (Cloudflare, hCaptcha, PerimeterX/HUMAN, DataDome). Solvable by a human ⇒ degraded UX, not a hard block. |
 | `BOT_CHALLENGE` | JS/sensor challenge state (`_abck challenged` / Cloudflare `cf-chl`). |
 | `OK` | 2xx/3xx. |
 | `ERROR` | Navigation failed — see the `layer:` (DNS/TCP/TLS/TIMEOUT/HTTP). |
@@ -438,7 +456,10 @@ Run `checkwebhealth doctor` first — it pinpoints which prerequisite is missing
 ## FAQ
 
 **Is a `403` proof that GSA is broken?**
-No — that's the whole point. Only `NETWORK-CAUSED` (OK direct, fails on GSA) and `IP_REPUTATION` (`_abck` passed but denied) are defensible. A `403` on *both* arms is the site blocking everyone, not the network.
+No — that's the whole point. Only `NETWORK-CAUSED` (OK direct, fails on GSA) and a **headed-confirmed** `IP_REPUTATION` (`_abck` passed but a `403`/`451` denial that survives `checkwebhealth validate`) are defensible. A `403` on *both* arms is the site blocking everyone, not the network — and a headless-only block is often just the automation being detected (run `validate` to rule it out).
+
+**A site shows a "slide to verify" / "press & hold" challenge over GSA — is that an IP block?**
+Usually not a *hard* block. It's an interactive challenge (PerimeterX/HUMAN, DataDome, Cloudflare) classified as `HUMAN_CHALLENGE`. On shared GSA egress IPs it often cites *"a robot on the same network (IP …) as you"* — i.e. **shared egress-IP reputation**. A human solves the slider and proceeds; the right escalation is the egress IP/ASN reputation, not a hard-block claim.
 
 **Why is a `401`/login redirect not a block?**
 That's expected authentication. It's classified as `AUTH_REQUIRED` and never counted as a network/WAF failure.
