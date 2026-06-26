@@ -42,14 +42,15 @@ the filtered view.
 
 | File | Purpose |
 |------|---------|
-| `sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
-| `probe-core.mjs` | Shared probe engine (Edge launch, stealth, egress capture, classify). |
-| `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` + `results-catalog.json`. |
-| `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
-| `render-catalog-html.mjs` | Renders the tabbed HTML report; merges arms into a delta. |
-| `probe-evidence.mjs` | Re-screenshots the non-OK rows of an existing run (for runs done without shots). |
+| `src/core/sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
+| `src/core/probe-core.mjs` | Shared probe engine (Edge launch, stealth, egress capture, classify). |
+| `src/core/config.mjs` | Resolved run config (DEFAULTS ← file ← env ← CLI flags). |
+| `src/probe/probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` + `results-catalog.json`. |
+| `src/probe/probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
+| `src/report/render-catalog-html.mjs` | Renders the tabbed HTML report; merges arms into a delta. |
+| `src/probe/probe-evidence.mjs` | Re-screenshots the non-OK rows of an existing run (for runs done without shots). |
 
-Copy them to the target machine (keep them in the **same folder**).
+Clone the repo onto the target machine (the files resolve each other by relative path).
 
 > **Screenshots = evidence.** The catalog probe captures a screenshot of every **non-OK** result
 > at the moment of the block (including *before* a transient 429/503 retry, so a retry that clears
@@ -83,14 +84,14 @@ point proves nothing; only `OK direct → fail on GSA` is evidence.
 ### 1) Baseline arm — **GSA disabled** (direct internet)
 
 ```powershell
-$env:PROBE_ARM="direct"; node probe-catalog.mjs
+checkwebhealth probe --arm direct
 ```
 Writes `results-direct.json` (tagged with the direct egress IP/ASN).
 
 ### 2) Test arm — **GSA enabled** (through the tunnel)
 
 ```powershell
-$env:PROBE_ARM="gsa"; node probe-catalog.mjs
+checkwebhealth probe --arm gsa
 ```
 Writes `results-gsa.json` (tagged with the GSA egress IP/ASN).
 
@@ -112,8 +113,7 @@ Writes `results-gsa.json` (tagged with the GSA egress IP/ASN).
 ### 3) Render the report (merges both arms)
 
 ```powershell
-node render-catalog-html.mjs
-Start-Process .\akamai-probe-results\catalog\report-catalog.html
+checkwebhealth report --open
 ```
 
 The report auto-detects `results-direct.json` + `results-gsa.json`, adds a **Direct vs GSA** column,
@@ -123,7 +123,7 @@ Fully self-contained — safe to email/share.
 ### Quick sample (10 categories) for a smoke test
 
 ```powershell
-$env:PROBE_ARM="gsa"; node probe-sample.mjs; node render-catalog-html.mjs
+checkwebhealth sample --arm gsa; checkwebhealth report
 ```
 
 ---
@@ -136,10 +136,10 @@ $env:PROBE_ARM="gsa"; node probe-sample.mjs; node render-catalog-html.mjs
 | Concurrency | `CONC` env var | Default 4. Keep modest to avoid self-induced throttling. |
 | Browser channel | `PROBE_CHANNEL` env | `msedge` (default) / `chrome` / `chromium`. |
 | Headed run | `PROBE_HEADED=1` | Visible browser — best forensic fidelity, rules out headless confound. |
-| Per-site timeout | `navTimeout` in `probe-core.mjs` | Default 25 s. |
-| Settle delay | `settleMs` in `probe-core.mjs` | Default 2.5 s — lets the bot sensor set `_abck` / a challenge resolve. |
-| Retry | built into `probe-core.mjs` | Transient 429/503 retried once before being recorded. |
-| Sites / categories | `sites-catalog.mjs` | Edit the `CATALOG` object freely. |
+| Per-site timeout | `--nav-timeout` / `NAV_TIMEOUT` | Default 25 s. |
+| Settle delay | `--settle` / `SETTLE_MS` | Default 2.5 s — lets the bot sensor set `_abck` / a challenge resolve. |
+| Retry | `--retries` / `PROBE_RETRIES` | Transient 429/503 retried before being recorded. |
+| Sites / categories | `src/core/sites-catalog.mjs` | Edit the `CATALOG` object freely. |
 
 ---
 
@@ -158,8 +158,8 @@ $env:PROBE_ARM="gsa"; node probe-sample.mjs; node render-catalog-html.mjs
    (often the SASE proxy), *not* WAF blocks — triage them separately from 403s.
 
 ### Re-run a subset
-Edit `sites-catalog.mjs` down to the categories/hosts of interest, or temporarily filter in
-`probe-catalog.mjs` where the `tasks` array is built.
+Edit `src/core/sites-catalog.mjs` down to the categories/hosts of interest, or temporarily filter in
+`src/probe/probe-catalog.mjs` where the `tasks` array is built.
 
 ---
 

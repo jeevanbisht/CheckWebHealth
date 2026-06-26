@@ -70,26 +70,26 @@ The output is a **single self-contained HTML report**, tabbed by category, with 
 ## Architecture
 
 ```
-        bin/checkwebhealth.mjs            ← CLI entry (shebang)
+        bin/checkwebhealth.mjs                 ← CLI entry (shebang)
                   │
-        src/cli/ (args · spec · help)     ← parse flags, dispatch
+        src/cli/ (args · spec · help)          ← parse flags, dispatch
           │                 │
    native commands     env-bridge (run.mjs)
    doctor/init/config   maps flags → env vars
           │                 │
           ▼                 ▼
-        config.mjs   probe-catalog.mjs / probe-sample.mjs / probe-evidence.mjs
-   (DEFAULTS ← file ← env ← flags)        render-catalog-html.mjs
+   src/core/config.mjs   src/probe/{probe-catalog,probe-sample,probe-evidence}.mjs
+   (DEFAULTS←file←env←flags)   src/report/render-catalog-html.mjs
                   │                                 │
                   ▼                                 ▼
-            probe-core.mjs                   report-catalog.html
+        src/core/probe-core.mjs            report-catalog.html
    (launch · classify · verdict · retry · evidence)
                   │
-            sites-catalog.mjs (50 × 50 = 2,500 hosts)
+        src/core/sites-catalog.mjs (50 × 50 = 2,500 hosts)
 ```
 
-- **`probe-core.mjs`** is the detection engine: browser launch + stealth, egress IP/ASN capture, vendor detection, the verdict taxonomy (`classify`), specific-reason mapping (`deriveReason`), retry/attempt logging, redirect-chain timing, header capture/diff and confidence scoring. **This is the logic you should not redesign** — bug fixes welcome, behavioural changes need an issue first.
-- **`config.mjs`** is the single source of run config: built-in `DEFAULTS` ← `probe.config.json` ← environment variables ← explicit overrides (CLI flags), all validated and clamped.
+- **`src/core/probe-core.mjs`** is the detection engine: browser launch + stealth, egress IP/ASN capture, vendor detection, the verdict taxonomy (`classify`), specific-reason mapping (`deriveReason`), retry/attempt logging, redirect-chain timing, header capture/diff and confidence scoring. **This is the logic you should not redesign** — bug fixes welcome, behavioural changes need an issue first.
+- **`src/core/config.mjs`** is the single source of run config: built-in `DEFAULTS` ← `probe.config.json` ← environment variables ← explicit overrides (CLI flags), all validated and clamped.
 - The **CLI** is a thin, cross-platform front end. Its flags map onto the same env vars the scripts already read, so the `npm run probe` / `PROBE_ARM=gsa` workflow keeps working unchanged.
 
 ---
@@ -227,7 +227,7 @@ Environment variables (equivalent to the flags, for the `npm run *` workflow):
 | `PROBE_HEADED` | `--headed` | unset | `1` for a headed run. |
 | `SHOTS_MODE` | `--shots` | `fail` | `all` / `fail` / `none`. |
 | `HAR` | `--har` | unset | `1` to export per-host `.har` on the evidence pass. |
-| `OUT_DIR` | `--output` | `akamai-probe-results/catalog` | Output directory. |
+| `OUT_DIR` | `--output` | `checkwebhealth-results/catalog` | Output directory. |
 
 ---
 
@@ -361,7 +361,7 @@ Yes — add a `paths` entry (e.g. `azure-vm`), probe with `--arm azure-vm`, and 
 
 ## Security & privacy
 
-- Probe output (`results-*.json`, `.har`) can contain cookies, edge IPs and tokens. `.gitignore` excludes `akamai-probe-results/`, `har/` / `*.har`, and `node_modules/` so they are **never committed**.
+- Probe output (`results-*.json`, `.har`) can contain cookies, edge IPs and tokens. `.gitignore` excludes `checkwebhealth-results/`, `har/` / `*.har`, and `node_modules/` so they are **never committed**.
 - The HTML report is self-contained and safe to email/share (cookie *values* are never stored — only names). Treat the raw `results-*.json` as sensitive if it leaves the machine.
 - See [SECURITY.md](SECURITY.md) to report a vulnerability.
 

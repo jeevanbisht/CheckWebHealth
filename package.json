@@ -32,15 +32,14 @@
     "cwh": "bin/checkwebhealth.mjs"
   },
   "exports": {
-    ".": "./probe-core.mjs",
-    "./config": "./config.mjs",
-    "./catalog": "./sites-catalog.mjs",
+    ".": "./src/core/probe-core.mjs",
+    "./config": "./src/core/config.mjs",
+    "./catalog": "./src/core/sites-catalog.mjs",
     "./package.json": "./package.json"
   },
   "files": [
     "bin/",
     "src/",
-    "*.mjs",
     "CHANGELOG.md"
   ],
   "scripts": {
@@ -49,11 +48,11 @@
     "checkwebhealth": "node bin/checkwebhealth.mjs",
     "doctor": "node bin/checkwebhealth.mjs doctor",
     "init": "node bin/checkwebhealth.mjs init",
-    "sample": "node probe-sample.mjs",
-    "probe": "node probe-catalog.mjs",
-    "evidence": "node probe-evidence.mjs",
-    "report": "node render-catalog-html.mjs",
-    "all": "node probe-catalog.mjs && node render-catalog-html.mjs",
+    "sample": "node src/probe/probe-sample.mjs",
+    "probe": "node src/probe/probe-catalog.mjs",
+    "evidence": "node src/probe/probe-evidence.mjs",
+    "report": "node src/report/render-catalog-html.mjs",
+    "all": "node src/probe/probe-catalog.mjs && node src/report/render-catalog-html.mjs",
     "prepublishOnly": "npm test"
   },
   "dependencies": {

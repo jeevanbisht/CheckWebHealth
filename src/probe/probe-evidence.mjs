@@ -8,8 +8,8 @@
 //   PROBE_ARM=gsa node probe-evidence.mjs
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { launchBrowser, makeContext, captureEgress, probeOne, slugify } from "./probe-core.mjs";
-import { loadConfig } from "./config.mjs";
+import { launchBrowser, makeContext, captureEgress, probeOne, slugify } from "../core/probe-core.mjs";
+import { loadConfig } from "../core/config.mjs";
 
 const cfg = loadConfig();
 const ARM = cfg.arm;
