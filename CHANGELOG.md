@@ -29,7 +29,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 
-- `classify()` no longer labels a **`200`** response `IP_REPUTATION` when only the body contains denial text ("Access Denied"/"Reference #"): the `IP_REPUTATION` verdict is now gated on an actual blocking HTTP status (401/403/429/…), so a soft/edge `200` page falls through to `BLOCKED`. Combined with the new headed `validate` pass, this stops headless-automation blocks from being mis-attributed to egress-IP reputation.
+- `classify()` now reserves `IP_REPUTATION` for **hard denial statuses** (`403`/`451`) with `_abck` passed. **`429`/`503` are no longer `IP_REPUTATION`** — they are throttle/overload/challenge responses (often a *shared-egress interactive challenge*), not egress-IP-reputation denials, so they classify as `BLOCKED`. A `200` whose body merely contains denial text ("Access Denied"/"Reference #") is likewise a soft/edge page → `BLOCKED`, not `IP_REPUTATION`.
+- `classify()` now detects **interactive, human-solvable challenge walls** — PerimeterX/HUMAN & DataDome slider / press-and-hold ("Show us your human side", "Slide right to secure your access") in addition to Cloudflare/hCaptcha/reCAPTCHA — as `HUMAN_CHALLENGE` (degraded UX) instead of mislabelling them `BLOCKED`/`IP_REPUTATION`.
+- `probeOne()` now waits for **`networkidle` (capped)** before reading page state: a short-dwell read could catch a page mid-challenge and mis-record a transient `403` that actually resolves to `200` once given time on slower WAFs.
+- `probeOne()` retry backoff now **honours `Retry-After`** (capped) for `429`/`503` instead of a fixed delay, to avoid deepening a throttle by re-hitting a tenant from one shared egress.
 - Ensured report and evidence steps honor `OUT_DIR` so generated reports, screenshots, and HAR evidence stay in the configured output directory.
 - The `report` command now prints a clear, actionable message (instead of a stack trace) when run before any probe has produced results.
 

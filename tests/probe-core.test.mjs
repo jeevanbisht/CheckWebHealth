@@ -70,6 +70,18 @@ test("classify does NOT call a 200 IP_REPUTATION (status-gated): soft denial bod
   assert.equal(classify(200, "Access Denied Reference #9.9", "passed", "Akamai"), "BLOCKED");
 });
 
+test("classify does NOT call a 429 IP_REPUTATION (throttle/challenge, not reputation) => BLOCKED", () => {
+  // 429 is rate/challenge, often a shared-egress interactive challenge — not a
+  // hard egress-IP-reputation denial. Only 403/451 qualify for IP_REPUTATION.
+  assert.equal(classify(429, "", "passed", "Akamai"), "BLOCKED");
+});
+
+test("classify detects a PerimeterX/HUMAN slider wall as HUMAN_CHALLENGE", () => {
+  const body = "Show us your human side. We can't tell if you're a human or a bot. Slide right to secure your access.";
+  assert.equal(classify(429, body, "passed", "Akamai"), "HUMAN_CHALLENGE");
+  assert.equal(classify(403, "Please press and hold to confirm you are human", "passed", "Imperva"), "HUMAN_CHALLENGE");
+});
+
 test("classify keeps BOT_CHALLENGE (abck challenged)", () => {
   assert.equal(classify(403, "", "challenged", "Akamai"), "BOT_CHALLENGE");
 });

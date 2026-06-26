@@ -81,22 +81,26 @@ export function authState(status, finalUrl, redirectChain = []) {
 export function classify(status, bodyText, abck, vendor, finalUrl, redirectChain) {
   const text = bodyText || "";
   const botCheck = /bot or not|bot check|bot-check|suspicious activity|verify you are human|checking your browser|cf-chl/i.test(text);
-  const challenge = /just a moment|checking your browser|verifying you are human|complete the security check|captcha|recaptcha|hcaptcha|cf-chl/i.test(text);
+  // Interactive, human-solvable challenges: Cloudflare Turnstile, hCaptcha/reCAPTCHA,
+  // and slider / press-and-hold walls from PerimeterX/HUMAN & DataDome. These are
+  // challenge-walled (degraded UX) — NOT a hard egress block. The PerimeterX/HUMAN
+  // slider says e.g. "Show us your human side" / "Slide right to secure your access".
+  const challenge = /just a moment|checking your browser|verifying you are human|complete the security check|captcha|recaptcha|hcaptcha|cf-chl|slide (right|left)\b|show us your human side|we can'?t tell if you'?re (a |an )?human|press (and|&) hold|px-captcha|perimeterx|datadome|human challenge/i.test(text);
   const denied = /access denied|don't have permission|reference #\d|errors\.edgesuite\.net|request unsuccessful|requested url was rejected|you have been blocked/i.test(text);
   const blockedStatus = BLOCK_STATUS.includes(status);
+  // Hard denials only: 429/503/444 are throttle/overload/challenge, NOT IP reputation.
+  const denyStatus = [403, 451].includes(status);
   if (challenge) return "HUMAN_CHALLENGE";
   if (abck === "challenged") return "BOT_CHALLENGE";
   if (botCheck && [403, 429].includes(status)) return "BOT_CHALLENGE";
   // Expected authentication (401 / redirect to a known IdP) is not a block.
   if (authState(status, finalUrl, redirectChain)) return "AUTH_REQUIRED";
-  // Bot sensor present (_abck passed) yet the server returns a hard *blocking
-  // status* (401/403/429/…) => candidate egress-IP/ASN reputation block. Gate on
-  // the status, NOT a denial *body* on a 200: a 200 whose body merely contains
-  // "Access Denied"/"Reference #" is a soft/edge page, not an IP-reputation
-  // denial. (And per the headed re-validation finding, a headless probe cannot
-  // prove IP reputation at all — Akamai/others block headless on any IP. The
-  // `validate` pass re-probes these headed and promotes false positives to OK.)
-  if (abck === "passed" && blockedStatus) return "IP_REPUTATION";
+  // Bot sensor present (_abck passed) yet a HARD denial status (403/451) => candidate
+  // egress-IP/ASN reputation block. NOT 429/503 (throttle/challenge — often a shared-
+  // egress interactive challenge), and NOT a denial *body* on a 200 (soft/edge page).
+  // A headless probe still can't prove IP reputation — the `validate` pass re-probes
+  // these headed and promotes false positives to OK.
+  if (abck === "passed" && denyStatus) return "IP_REPUTATION";
   if (blockedStatus || denied) return "BLOCKED";
   if (/attention required/i.test(text) && status >= 400) return "BLOCKED";
   if (typeof status === "number" && status >= 200 && status < 400) return "OK";
@@ -590,12 +594,22 @@ export async function probeOne(ctx, task, opts = {}) {
           const shot = await takeShot("BLOCKED", "-attempt" + attempt + "-" + st);
           if (shot) r.evidenceShots.push(shot);
         }
-        await page.waitForTimeout(1200 * attempt);
+        // Back off before retrying a transient 429/503. Honour Retry-After when
+        // present (capped) rather than hammering — re-hitting a throttled tenant
+        // from one shared egress only deepens the throttle/challenge.
+        const ra = parseInt((resp && resp.headers()["retry-after"]) || "", 10);
+        const backoff = Number.isFinite(ra) ? Math.min(Math.max(ra * 1000, 1200), 15000) : 1500 * attempt;
+        await page.waitForTimeout(backoff);
         continue;
       }
       break;
     }
 
+    // Let async bot sensors / interactive challenges settle before reading state:
+    // wait for the network to go idle (capped). A short-dwell read can catch a
+    // page mid-challenge and mis-record a transient 403/429 (observed: a 403 that
+    // resolves to 200 once given time + network idle on slower WAFs).
+    try { await page.waitForLoadState("networkidle", { timeout: Math.min(navTimeout, 8000) }); } catch { /* idle never reached — proceed */ }
     await page.waitForTimeout(settleMs);
     const headers = resp ? resp.headers() : {};
     r.status = resp ? resp.status() : null;
