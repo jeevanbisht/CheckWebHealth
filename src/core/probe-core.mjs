@@ -312,6 +312,69 @@ export async function makeContext(browser, opts = {}) {
   return ctx;
 }
 
+// True when this run is configured to probe through Manual Browser Parity Edge
+// (real profile, no stealth) instead of the default temp-profile stealth engine.
+// Opt-in only (cfg.parityProbe / PROBE_PARITY=1 / --parity) so the default A/B
+// methodology is never silently changed.
+export function isParityProbe(cfg = {}) {
+  return cfg.parityProbe === true;
+}
+
+// Launch the browsing environment for a probe arm and return a uniform handle so
+// the orchestrators don't branch on the engine:
+//   { meta, contexts:[ctx…], egressContext, close() }
+// Two engines:
+//   * default  — bundled launchBrowser() + N stealth temp-profile contexts
+//                (unchanged A/B behaviour; fixed UA/viewport/locale/tz).
+//   * parity   — ONE real-Edge persistent context using a *copied* diagnostic
+//                profile (real cookies/session, no stealth, no write-back to the
+//                user's real profile). The single context is shared across the
+//                requested worker slots (cookies are domain-scoped, so sharing
+//                is correct and desirable for parity). probe's --headed controls
+//                visibility (headless by default, like a normal probe).
+export async function launchProbeEnvironment(cfg = {}, { concurrency = 1 } = {}) {
+  const n = Math.max(1, Number(concurrency) || 1);
+
+  if (isParityProbe(cfg)) {
+    const { launchParityContext, cleanupCopiedProfile } = await import("./browser-parity.mjs");
+    const browserCfg = { ...(cfg.browser || {}), headless: !cfg.headed };
+    const pc = await launchParityContext(browserCfg, { forceCopy: true });
+    const ctx = pc.context;
+    const meta = {
+      channel: pc.channel,
+      headless: pc.headless,
+      stealth: false,
+      mode: "manual-parity",
+      profileType: pc.profileType,
+      copiedProfileUsed: pc.copiedProfileUsed,
+      profileDirectory: browserCfg.profileDirectory || "Default",
+    };
+    return {
+      meta,
+      contexts: Array.from({ length: n }, () => ctx), // shared real-profile context
+      egressContext: ctx,
+      close: async () => {
+        try { await ctx.close().catch(() => {}); } finally {
+          if (pc.copiedProfileUsed) cleanupCopiedProfile(pc.userDataDir);
+        }
+      },
+    };
+  }
+
+  // Default temp-profile stealth engine — unchanged behaviour.
+  const { browser, meta } = await launchBrowser();
+  const contexts = await Promise.all(Array.from({ length: n }, () => makeContext(browser)));
+  return {
+    meta: { ...meta, mode: "automated", profileType: "temporary" },
+    contexts,
+    egressContext: contexts[0],
+    close: async () => {
+      await Promise.all(contexts.map((c) => c.close().catch(() => {})));
+      await browser.close().catch(() => {});
+    },
+  };
+}
+
 // Capture the public egress IP + ASN/org as seen from this network path.
 // Tries ipinfo.io (gives ASN/org/geo), falls back to ipify (IP only).
 export async function captureEgress(ctx) {

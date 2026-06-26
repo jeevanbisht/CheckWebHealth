@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CATALOG } from "../core/sites-catalog.mjs";
 import { loadConfig } from "../core/config.mjs";
-import { launchBrowser, makeContext, captureEgress, probeOne } from "../core/probe-core.mjs";
+import { launchProbeEnvironment, captureEgress, probeOne } from "../core/probe-core.mjs";
 
 const cfg = loadConfig();
 const ARM = cfg.arm;
@@ -30,15 +30,14 @@ for (const [category, hosts] of Object.entries(CATALOG))
 
 console.log(`Catalog probe arm="${ARM}": ${tasks.length} sites, concurrency ${CONCURRENCY}, retries ${cfg.retries}`);
 const t0 = Date.now();
-const { browser, meta } = await launchBrowser();
-console.log(`Browser: ${meta.channel} headless=${meta.headless} stealth=${meta.stealth}`);
+const env = await launchProbeEnvironment(cfg, { concurrency: CONCURRENCY });
+const { meta, contexts } = env;
+console.log(`Browser: ${meta.channel} headless=${meta.headless} ${meta.mode === "manual-parity" ? `mode=manual-parity profile=${meta.profileType}` : `stealth=${meta.stealth}`}`);
+if (meta.mode === "manual-parity") {
+  console.log("Parity mode: using your real Edge profile via a safe COPIED diagnostic profile (real cookies/session, no write-back; cookie values are never stored).");
+}
 
-// one stealth context per worker (cookies are domain-scoped so reuse is fine)
-const contexts = await Promise.all(
-  Array.from({ length: CONCURRENCY }, () => makeContext(browser))
-);
-
-const egress = await captureEgress(contexts[0]);
+const egress = await captureEgress(env.egressContext);
 console.log(`Egress: ${egress.ip || "?"} ${egress.org || ""} (${egress.source})`);
 
 function writeOut() {
@@ -67,7 +66,6 @@ async function worker(wi) {
 }
 await Promise.all(contexts.map((_, i) => worker(i)));
 
-await Promise.all(contexts.map((c) => c.close().catch(() => {})));
-await browser.close();
+await env.close();
 writeOut();
 console.log(`Done. Wrote results-${ARM}.json and results-catalog.json (${tasks.length} sites)`);

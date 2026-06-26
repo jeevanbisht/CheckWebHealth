@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import {
   classify, authState, deriveReason, summarizePasses,
   detectVendor, abckState, errorLayer, extractReference, slugify,
-  BLOCK_STATUS, diffHeaders, scoreConfidence, pickDiffHeaders,
+  BLOCK_STATUS, diffHeaders, scoreConfidence, pickDiffHeaders, isParityProbe,
 } from "../src/core/probe-core.mjs";
 import { loadConfig, DEFAULTS } from "../src/core/config.mjs";
 
@@ -13,6 +13,14 @@ import { loadConfig, DEFAULTS } from "../src/core/config.mjs";
 test("401 is not in BLOCK_STATUS (auth, not block)", () => {
   assert.ok(!BLOCK_STATUS.includes(401));
   assert.ok(BLOCK_STATUS.includes(403));
+});
+
+// ---- isParityProbe: opt-in gate for manual-parity probing ----------------
+test("isParityProbe is true only when cfg.parityProbe === true", () => {
+  assert.equal(isParityProbe({ parityProbe: true }), true);
+  assert.equal(isParityProbe({ parityProbe: false }), false);
+  assert.equal(isParityProbe({}), false);
+  assert.equal(isParityProbe({ parityProbe: "1" }), false); // must be strictly boolean true
 });
 
 // ---- authState -----------------------------------------------------------

@@ -27,6 +27,7 @@ export const DEFAULTS = {
   shots: "fail", // screenshot mode: all|fail|none
   har: false, // export a true per-host .har on the evidence pass
   evidence: true, // capture console + network log on failures
+  parityProbe: false, // opt-in: run the probe arm through manual-parity Edge (real profile via a safe copy, no stealth) instead of the temp-profile stealth engine
   outDir: "checkwebhealth-results/catalog",
 
   // Manual Browser Parity Mode — make the automated browser match the user's
@@ -107,6 +108,7 @@ export function loadConfig(env = process.env, file = "probe.config.json", overri
   if (env.SHOTS === "1") cfg.shots = "all"; // legacy boolean toggle
   if (env.SHOTS_MODE) cfg.shots = env.SHOTS_MODE;
   if (env.HAR === "1") cfg.har = true;
+  if (env.PROBE_PARITY === "1") cfg.parityProbe = true;
   if (env.OUT_DIR) cfg.outDir = env.OUT_DIR;
   // Explicit overrides (resolved CLI flags) win over env.
   for (const [k, v] of Object.entries(overrides)) if (v !== undefined) cfg[k] = v;
@@ -118,6 +120,7 @@ export function loadConfig(env = process.env, file = "probe.config.json", overri
   cfg.settleMs = Math.max(0, num(cfg.settleMs, DEFAULTS.settleMs));
   cfg.channel = oneOf(cfg.channel, CHANNELS, DEFAULTS.channel);
   cfg.shots = oneOf(cfg.shots, SHOT_MODES, DEFAULTS.shots);
+  cfg.parityProbe = toBool(cfg.parityProbe, DEFAULTS.parityProbe);
   if (!cfg.arm || typeof cfg.arm !== "string") cfg.arm = DEFAULTS.arm;
   // Manual Browser Parity block: deep-merge file over defaults, then normalise
   // with env overrides applied. Explicit overrides.browser (resolved CLI flags)

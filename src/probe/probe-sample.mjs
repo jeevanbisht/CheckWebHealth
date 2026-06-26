@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CATALOG } from "../core/sites-catalog.mjs";
 import { loadConfig } from "../core/config.mjs";
-import { launchBrowser, makeContext, captureEgress, probeOne } from "../core/probe-core.mjs";
+import { launchProbeEnvironment, captureEgress, probeOne } from "../core/probe-core.mjs";
 
 const cfg = loadConfig();
 const ARM = cfg.arm;
@@ -39,11 +39,15 @@ const tasks = shuffledCats.map((category) => {
 console.log(`Sample probe arm="${ARM}" seed ${seed} — 10 sites / 10 categories`);
 for (const t of tasks) console.log(`- ${t.category}: ${t.host}`);
 
-const { browser, meta } = await launchBrowser();
-console.log(`Browser: ${meta.channel} headless=${meta.headless} stealth=${meta.stealth}`);
-const ctx = await makeContext(browser);
+const env = await launchProbeEnvironment(cfg, { concurrency: 1 });
+const { meta } = env;
+const ctx = env.contexts[0];
+console.log(`Browser: ${meta.channel} headless=${meta.headless} ${meta.mode === "manual-parity" ? `mode=manual-parity profile=${meta.profileType}` : `stealth=${meta.stealth}`}`);
+if (meta.mode === "manual-parity") {
+  console.log("Parity mode: using your real Edge profile via a safe COPIED diagnostic profile (real cookies/session, no write-back; cookie values are never stored).");
+}
 
-const egress = await captureEgress(ctx);
+const egress = await captureEgress(env.egressContext);
 console.log(`Egress: ${egress.ip || "?"} ${egress.org || ""} (${egress.source})`);
 
 const results = [];
@@ -54,8 +58,7 @@ for (const task of tasks) {
   await new Promise((res) => setTimeout(res, 300 + Math.floor(rand() * 400)));
 }
 
-await ctx.close();
-await browser.close();
+await env.close();
 
 const payload = { meta: { arm: ARM, paths: cfg.paths, seed, browser: meta, egress, startedAt: new Date(seed).toISOString(), finishedAt: new Date().toISOString() }, results };
 writeFileSync(join(OUT_DIR, `results-${ARM}.json`), JSON.stringify(payload, null, 2));

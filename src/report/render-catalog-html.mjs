@@ -287,7 +287,10 @@ function egressLine(arm) {
   const m = arms[arm].meta || {};
   const e = m.egress || {};
   const b = m.browser || {};
-  return `<div class="egress"><b>${esc(arm)}</b> · egress <span class="mono">${esc(e.ip || "?")}</span> ${esc(e.org || "")} ${esc(e.country || "")} · browser ${esc(b.channel || "?")} headless=${esc(String(b.headless))} stealth=${esc(String(b.stealth))} · ${esc(m.finishedAt || "")}</div>`;
+  const browserBits = b.mode === "manual-parity"
+    ? `mode=manual-parity profile=${esc(b.profileType || "?")}`
+    : `stealth=${esc(String(b.stealth))}`;
+  return `<div class="egress"><b>${esc(arm)}</b> · egress <span class="mono">${esc(e.ip || "?")}</span> ${esc(e.org || "")} ${esc(e.country || "")} · browser ${esc(b.channel || "?")} headless=${esc(String(b.headless))} ${browserBits} · ${esc(m.finishedAt || "")}</div>`;
 }
 
 const now = new Date().toISOString();

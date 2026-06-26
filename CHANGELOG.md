@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- Added a **`--parity`** flag for `probe`/`sample` (env `PROBE_PARITY`): runs the A/B arm through **manual-parity Edge** (your real profile's cookies/session via a safe **copied** diagnostic profile, no stealth, honest `navigator.webdriver`) instead of the default temp-profile stealth engine. This combines the network-path dimension (`--arm direct`/`gsa`) with the browser-posture dimension. Opt-in only — the default A/B behaviour is unchanged. The catalog report's per-arm line shows `mode=manual-parity profile=copied`.
 - Added **Manual Browser Parity Mode** (`checkwebhealth parity <url>`): runs a target through a temporary-profile automated Edge and a headed real-profile (persistent) Edge to distinguish a real network/site failure from a failure caused by the diagnostic browser environment. Emits `parity-report.json` + `parity-report.html`.
 - Added the `AUTOMATION_OR_BROWSER_POSTURE` classification with sub-reasons `TEMP_PROFILE_USED`, `MISSING_COOKIES`, `BROWSER_VERSION_MISMATCH`, `HEADLESS_MODE`, `PROFILE_NOT_LOADED`, `SCRIPT_OR_RESOURCE_FAILURE`, `CLIENT_POSTURE_POLICY`, and `SITE_REJECTS_AUTOMATED_BROWSER` (plus `NETWORK_OR_SITE_FAILURE` / `NO_FAILURE_REPRODUCED`).
 - Added a nested `browser` config block (`mode`, `channel`, `headless`, `usePersistentProfile`, `userDataDir`, `profileDirectory`, `viewport`, `locale`, `timezone`, `useSystemProxy`) with `--mode`, `--url`, `--profile-directory`, `--user-data-dir`, and `--manual-fails` flags.

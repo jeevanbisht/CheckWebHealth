@@ -27,6 +27,7 @@ export const OPTIONS = {
   settle: { type: "number", env: "SETTLE_MS", only: ["probe", "sample"], desc: "Settle time before reading page state, in ms." },
   channel: { type: "string", env: "PROBE_CHANNEL", only: ["probe", "sample", "evidence", "parity"], desc: "Browser channel: msedge | chrome | chromium." },
   headed: { type: "boolean", env: "PROBE_HEADED", only: ["probe", "sample", "evidence", "parity"], desc: "Run headed (visible) for best forensic fidelity." },
+  "parity": { type: "boolean", env: "PROBE_PARITY", only: ["probe", "sample"], desc: "Run this arm through manual-parity Edge (your real profile via a safe copy; no stealth)." },
   shots: { type: "string", env: "SHOTS_MODE", only: ["probe"], desc: "Screenshot mode: all | fail | none." },
   seed: { type: "number", env: "SEED", only: ["sample"], desc: "Fixed RNG seed so two machines pick the same sites." },
   har: { type: "boolean", env: "HAR", only: ["evidence"], desc: "Export a per-host .har for each failed row." },

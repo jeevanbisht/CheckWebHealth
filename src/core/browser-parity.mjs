@@ -327,25 +327,31 @@ export async function launchParityContext(browserCfg = {}, opts = {}) {
 
   const tryLaunch = async (userDataDir) => chromium.launchPersistentContext(userDataDir, launchOpts);
 
-  // First attempt: the real profile (best parity).
+  // Launch on a copied diagnostic profile (real cookies/state, but writes go to
+  // the throwaway copy — never back to the user's real profile). Used by the
+  // lock fallback and by forceCopy (bulk probing must not pollute the real
+  // profile's history/cookies).
+  const launchOnCopy = async (lockReason) => {
+    let copied;
+    try {
+      copied = copyDiagnosticProfile(realUserData, profileDirectory);
+      const context = await tryLaunch(copied);
+      return { context, channel, headless, profileType: "copied", copiedProfileUsed: true, userDataDir: copied, copiedFrom: realUserData, profileFound: found, lockReason };
+    } catch (e2) {
+      if (copied) cleanupCopiedProfile(copied); // never leave cookies/storage on disk
+      throw new Error(`parity launch failed (copied diagnostic profile): ${(e2.message || e2).toString().split("\n")[0]}`);
+    }
+  };
+
   if (browserCfg.usePersistentProfile !== false) {
+    // forceCopy: always use a copied profile (real cookies, no write-back).
+    if (opts.forceCopy === true) return launchOnCopy("forced copy (no write-back to the real profile)");
+    // Otherwise prefer the real profile (best parity); copy only if it's locked.
     try {
       const context = await tryLaunch(realUserData);
       return { context, channel, headless, profileType: "persistent", copiedProfileUsed: false, userDataDir: realUserData, profileFound: found };
     } catch (e) {
-      // Locked / in use → fall back to a copied diagnostic profile.
-      if (isProfileLockError(e)) {
-        let copied;
-        try {
-          copied = copyDiagnosticProfile(realUserData, profileDirectory);
-          const context = await tryLaunch(copied);
-          return { context, channel, headless, profileType: "copied", copiedProfileUsed: true, userDataDir: copied, copiedFrom: realUserData, profileFound: found, lockReason: (e.message || "").split("\n")[0] };
-        } catch (e2) {
-          // Never leave the copied profile (with cookies/storage) on disk.
-          if (copied) cleanupCopiedProfile(copied);
-          throw new Error(`parity launch failed (real profile locked, copy fallback also failed): ${(e2.message || e2).toString().split("\n")[0]}`);
-        }
-      }
+      if (isProfileLockError(e)) return launchOnCopy((e.message || "").split("\n")[0]);
       throw e;
     }
   }

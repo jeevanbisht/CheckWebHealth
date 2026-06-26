@@ -160,6 +160,7 @@ Common flags (run `checkwebhealth help <command>` for the full list):
 | `--channel <ch>` | probe · sample · evidence | `msedge` / `chrome` / `chromium`. |
 | `--headed` | probe · sample · evidence | Visible (headed) browser. |
 | `--shots <mode>` | probe | `all` / `fail` / `none`. |
+| `--parity` | probe · sample | Run this arm through **manual-parity Edge** (your real profile via a safe copy; no stealth). |
 | `--seed <n>` | sample | Fix the RNG so two machines pick the same sites. |
 | `--har` | evidence | Export a per-host `.har` for each failed row. |
 | `--url <url>` | parity | Target URL to compare (default `https://www.bing.com`). |
@@ -217,6 +218,19 @@ checkwebhealth parity https://site.example --user-data-dir "D:\\EdgeProfiles\\di
 - Exported `.har` files are sanitised (cookie/authorization headers and request/response bodies stripped).
 
 Run `checkwebhealth doctor` for a parity preflight: Edge installed + version, selected profile found, profile lock status, headless status, system proxy, whether automation is detectable, cookies available, and recommended fixes.
+
+### Parity mode for the A/B probe arms
+
+By default `checkwebhealth probe`/`sample` use a **temporary-profile** Edge with light stealth and a fixed fingerprint (the legacy A/B engine — unchanged). Add **`--parity`** to run an arm through **manual-parity Edge** instead — your **real** profile's cookies/session, **no stealth**, `navigator.webdriver` honest:
+
+```bash
+# direct baseline, but using your real Edge profile (cookies/session)
+checkwebhealth probe --arm direct --parity
+checkwebhealth probe --arm gsa    --parity
+checkwebhealth report --open
+```
+
+This combines **both** diagnostic dimensions — the **network path** (`--arm direct` vs `gsa`) *and* the **browser posture** (real profile vs temp). To protect your real browser, parity-probe always runs through a **safe copied** diagnostic profile (real cookies at copy time, but writes never go back to your real profile), so a 2,500-site run won't pollute your history. The report's per-arm line shows `mode=manual-parity profile=copied` so viewers know real state was used. Keep `--concurrency` modest in parity mode.
 
 ---
 
@@ -302,6 +316,7 @@ Environment variables (equivalent to the flags, for the `npm run *` workflow):
 | `PROBE_HEADED` | `--headed` | unset | `1` for a headed run. |
 | `SHOTS_MODE` | `--shots` | `fail` | `all` / `fail` / `none`. |
 | `HAR` | `--har` | unset | `1` to export per-host `.har` on the evidence pass. |
+| `PROBE_PARITY` | `--parity` | unset | `1` to run the probe arm through manual-parity Edge (real profile via a safe copy). |
 | `OUT_DIR` | `--output` | `checkwebhealth-results/catalog` | Output directory. |
 | `BROWSER_MODE` | `--mode` | `manual-parity` | Parity browser mode (`manual-parity`/`automated`). |
 | `BROWSER_HEADLESS` | — | `0` | `1` to run parity headless (headed by default). |

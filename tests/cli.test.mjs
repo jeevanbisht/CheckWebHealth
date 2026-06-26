@@ -120,3 +120,18 @@ test("loadConfig: SHOTS_MODE sets a valid screenshot mode", () => {
 test("loadConfig: empty arm falls back to the default", () => {
   assert.equal(loadConfig({ PROBE_ARM: "" }, "does-not-exist.json").arm, DEFAULTS.arm);
 });
+
+test("loadConfig: parityProbe defaults off and is opt-in via PROBE_PARITY/flag", () => {
+  assert.equal(loadConfig({}, "does-not-exist.json").parityProbe, false);
+  assert.equal(loadConfig({ PROBE_PARITY: "1" }, "does-not-exist.json").parityProbe, true);
+  // explicit override (resolved --parity flag) wins
+  assert.equal(loadConfig({}, "does-not-exist.json", { parityProbe: true }).parityProbe, true);
+  // a loosely-typed file value is coerced
+  assert.equal(loadConfig({}, "does-not-exist.json", { parityProbe: "0" }).parityProbe, false);
+});
+
+test("applyEnv maps --parity onto PROBE_PARITY", () => {
+  const env = {};
+  applyEnv({ parity: true }, env);
+  assert.equal(env.PROBE_PARITY, "1");
+});
