@@ -64,6 +64,12 @@ test("classify keeps IP_REPUTATION (abck passed but denied)", () => {
   assert.equal(classify(403, "Access Denied Reference #1.2", "passed", "Akamai"), "IP_REPUTATION");
 });
 
+test("classify does NOT call a 200 IP_REPUTATION (status-gated): soft denial body => BLOCKED", () => {
+  // A 200 whose body merely contains denial text is a soft/edge page, not an
+  // IP-reputation denial. IP_REPUTATION requires an actual blocking status.
+  assert.equal(classify(200, "Access Denied Reference #9.9", "passed", "Akamai"), "BLOCKED");
+});
+
 test("classify keeps BOT_CHALLENGE (abck challenged)", () => {
   assert.equal(classify(403, "", "challenged", "Akamai"), "BOT_CHALLENGE");
 });

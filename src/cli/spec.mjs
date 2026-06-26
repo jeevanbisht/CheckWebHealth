@@ -8,6 +8,7 @@ export const COMMANDS = {
   sample: "Run a quick sample probe (random categories; --seed for parity).",
   report: "Build the HTML report from existing results.",
   evidence: "Re-screenshot the non-OK rows of an existing run.",
+  validate: "Headed re-validation: re-probe automation-suspect rows headed to strip headless false-positives.",
   parity: "Manual Browser Parity: compare real-Edge profile vs a temp automated profile.",
   doctor: "Check the environment is ready (Node, Playwright, browser, network).",
   init: "Write a starter probe.config.json.",
@@ -20,17 +21,18 @@ export const COMMANDS = {
 // env:  the process.env key this flag maps onto (consumed by config.mjs)
 // only: restrict an option to specific commands (omit = global)
 export const OPTIONS = {
-  arm: { type: "string", env: "PROBE_ARM", only: ["probe", "sample", "evidence"], desc: "Path id this run exercises (e.g. direct, gsa)." },
+  arm: { type: "string", env: "PROBE_ARM", only: ["probe", "sample", "evidence", "validate"], desc: "Path id this run exercises (e.g. direct, gsa)." },
   concurrency: { type: "number", alias: "c", env: "CONC", only: ["probe"], desc: "Parallel browser contexts (kept modest on purpose)." },
-  retries: { type: "number", env: "PROBE_RETRIES", only: ["probe", "sample"], desc: "Max attempts per site (transient 429/503 are retried)." },
-  "nav-timeout": { type: "number", env: "NAV_TIMEOUT", only: ["probe", "sample"], desc: "Per-navigation timeout in ms." },
-  settle: { type: "number", env: "SETTLE_MS", only: ["probe", "sample"], desc: "Settle time before reading page state, in ms." },
-  channel: { type: "string", env: "PROBE_CHANNEL", only: ["probe", "sample", "evidence", "parity"], desc: "Browser channel: msedge | chrome | chromium." },
+  retries: { type: "number", env: "PROBE_RETRIES", only: ["probe", "sample", "validate"], desc: "Max attempts per site (transient 429/503 are retried)." },
+  "nav-timeout": { type: "number", env: "NAV_TIMEOUT", only: ["probe", "sample", "validate"], desc: "Per-navigation timeout in ms." },
+  settle: { type: "number", env: "SETTLE_MS", only: ["probe", "sample", "validate"], desc: "Settle time before reading page state, in ms." },
+  channel: { type: "string", env: "PROBE_CHANNEL", only: ["probe", "sample", "evidence", "parity", "validate"], desc: "Browser channel: msedge | chrome | chromium." },
   headed: { type: "boolean", env: "PROBE_HEADED", only: ["probe", "sample", "evidence", "parity"], desc: "Run headed (visible) for best forensic fidelity." },
   "parity": { type: "boolean", env: "PROBE_PARITY", only: ["probe", "sample"], desc: "Run this arm through manual-parity Edge (your real profile via a safe copy; no stealth)." },
   shots: { type: "string", env: "SHOTS_MODE", only: ["probe"], desc: "Screenshot mode: all | fail | none." },
   seed: { type: "number", env: "SEED", only: ["sample"], desc: "Fixed RNG seed so two machines pick the same sites." },
   har: { type: "boolean", env: "HAR", only: ["evidence"], desc: "Export a per-host .har for each failed row." },
+  "include-blocked": { type: "boolean", env: "VALIDATE_INCLUDE_BLOCKED", only: ["validate"], desc: "Re-validate BLOCKED/challenge rows too, not just IP_REPUTATION." },
   // Manual Browser Parity Mode
   url: { type: "string", only: ["parity"], desc: "Target URL to compare (default https://www.bing.com)." },
   mode: { type: "string", env: "BROWSER_MODE", only: ["parity"], desc: "Browser mode: manual-parity | automated." },

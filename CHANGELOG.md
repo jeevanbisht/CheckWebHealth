@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- Added a **`checkwebhealth validate`** command (headed re-validation pass): re-probes the automation-suspect rows of an existing run (`IP_REPUTATION` by default; add `--include-blocked` for `BLOCKED`/challenges) using a **headed** real-Edge profile. A headless probe cannot tell egress-IP/ASN reputation apart from headless-bot detection (Akamai/Cloudflare block headless on any IP), so suspects that load fine headed are promoted to `OK` (`automationFalsePositive: true`) while those still denied headed are kept and marked `headedConfirmed: true` — making the surviving `IP_REPUTATION` verdicts defensible. Rows record `headlessVerdict`/`headedVerdict`/`headedStatus`. Re-render with `report` to refresh the verdicts and NETWORK-CAUSED delta.
 - Added a **`--parity`** flag for `probe`/`sample` (env `PROBE_PARITY`): runs the A/B arm through **manual-parity Edge** (your real profile's cookies/session via a safe **copied** diagnostic profile, no stealth, honest `navigator.webdriver`) instead of the default temp-profile stealth engine. This combines the network-path dimension (`--arm direct`/`gsa`) with the browser-posture dimension. Opt-in only — the default A/B behaviour is unchanged. The catalog report's per-arm line shows `mode=manual-parity profile=copied`.
 - Added **Manual Browser Parity Mode** (`checkwebhealth parity <url>`): runs a target through a temporary-profile automated Edge and a headed real-profile (persistent) Edge to distinguish a real network/site failure from a failure caused by the diagnostic browser environment. Emits `parity-report.json` + `parity-report.html`.
 - Added the `AUTOMATION_OR_BROWSER_POSTURE` classification with sub-reasons `TEMP_PROFILE_USED`, `MISSING_COOKIES`, `BROWSER_VERSION_MISMATCH`, `HEADLESS_MODE`, `PROFILE_NOT_LOADED`, `SCRIPT_OR_RESOURCE_FAILURE`, `CLIENT_POSTURE_POLICY`, and `SITE_REJECTS_AUTOMATED_BROWSER` (plus `NETWORK_OR_SITE_FAILURE` / `NO_FAILURE_REPRODUCED`).
@@ -28,6 +29,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 
+- `classify()` no longer labels a **`200`** response `IP_REPUTATION` when only the body contains denial text ("Access Denied"/"Reference #"): the `IP_REPUTATION` verdict is now gated on an actual blocking HTTP status (401/403/429/…), so a soft/edge `200` page falls through to `BLOCKED`. Combined with the new headed `validate` pass, this stops headless-automation blocks from being mis-attributed to egress-IP reputation.
 - Ensured report and evidence steps honor `OUT_DIR` so generated reports, screenshots, and HAR evidence stay in the configured output directory.
 - The `report` command now prints a clear, actionable message (instead of a stack trace) when run before any probe has produced results.
 

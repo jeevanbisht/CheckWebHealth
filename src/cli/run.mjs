@@ -10,6 +10,7 @@ const SCRIPTS = {
   sample: "../probe/probe-sample.mjs",
   report: "../report/render-catalog-html.mjs",
   evidence: "../probe/probe-evidence.mjs",
+  validate: "../probe/probe-validate.mjs",
 };
 
 // Translate resolved CLI options to process.env keys (mutates `env`).

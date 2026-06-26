@@ -79,6 +79,7 @@ export async function main(argv = []) {
     case "probe":
     case "sample":
     case "evidence":
+    case "validate":
     case "report": {
       try {
         await runScript(command, options);

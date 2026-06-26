@@ -89,9 +89,14 @@ export function classify(status, bodyText, abck, vendor, finalUrl, redirectChain
   if (botCheck && [403, 429].includes(status)) return "BOT_CHALLENGE";
   // Expected authentication (401 / redirect to a known IdP) is not a block.
   if (authState(status, finalUrl, redirectChain)) return "AUTH_REQUIRED";
-  // Fingerprint validated by the bot sensor but the request is still denied =>
-  // the block is keyed on egress IP/ASN reputation, not the browser.
-  if (abck === "passed" && (blockedStatus || denied)) return "IP_REPUTATION";
+  // Bot sensor present (_abck passed) yet the server returns a hard *blocking
+  // status* (401/403/429/…) => candidate egress-IP/ASN reputation block. Gate on
+  // the status, NOT a denial *body* on a 200: a 200 whose body merely contains
+  // "Access Denied"/"Reference #" is a soft/edge page, not an IP-reputation
+  // denial. (And per the headed re-validation finding, a headless probe cannot
+  // prove IP reputation at all — Akamai/others block headless on any IP. The
+  // `validate` pass re-probes these headed and promotes false positives to OK.)
+  if (abck === "passed" && blockedStatus) return "IP_REPUTATION";
   if (blockedStatus || denied) return "BLOCKED";
   if (/attention required/i.test(text) && status >= 400) return "BLOCKED";
   if (typeof status === "number" && status >= 200 && status < 400) return "OK";

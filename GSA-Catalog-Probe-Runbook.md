@@ -147,10 +147,14 @@ checkwebhealth sample --arm gsa; checkwebhealth report
 
 1. **`NETWORK-CAUSED` first.** Click the KPI to see sites that are `OK` direct but fail on GSA. This
    is your evidence list — everything else is context. If this count is 0, GSA is not the cause.
-2. **`IP_REPUTATION`** rows (`_abck = passed` but denied) → the browser fingerprint was accepted yet
-   the request was still blocked ⇒ **egress IP/ASN reputation**. Escalate the **GSA egress IP + ASN**
-   (shown in the egress banner) and the **Akamai `Reference #`** to Akamai — that pair lets them trace
-   the deny in their logs.
+2. **`IP_REPUTATION`** rows (`_abck = passed` but denied) → the bot sensor ran yet the request was
+   still denied with a blocking status. **Validate before escalating:** a *headless* probe can't tell
+   egress-IP reputation apart from headless-bot detection (Akamai/Cloudflare deny headless on any IP),
+   so run **`checkwebhealth validate --arm gsa`** — it re-probes these rows **headed** (a real Edge
+   profile, matching a human). Rows that load fine headed are demoted to `OK` (`automationFalsePositive`);
+   rows still denied headed are kept (`headedConfirmed`). Only a **headed-confirmed** `IP_REPUTATION` is
+   defensible ⇒ escalate the **GSA egress IP + ASN** (egress banner) and the **Akamai `Reference #`** to
+   Akamai — that pair lets them trace the deny in their logs.
 3. **Overall block rate** + **vendor bar** → how much of the web your egress trips, and via whom.
 4. **Per-category tabs** → which verticals are worst (Airlines/Hotels are often Akamai-heavy).
 5. **`HUMAN_CHALLENGE` / `BOT_CHALLENGE`** → challenge-walled or looping; degraded but not hard-blocked.
