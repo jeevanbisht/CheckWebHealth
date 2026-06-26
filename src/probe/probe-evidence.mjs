@@ -9,6 +9,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser, makeContext, captureEgress, probeOne, slugify } from "../core/probe-core.mjs";
+import { sanitizeHarFile } from "../core/browser-parity.mjs";
 import { loadConfig } from "../core/config.mjs";
 
 const cfg = loadConfig();
@@ -60,6 +61,9 @@ async function probe(row) {
       return res;
     } finally {
       await harCtx.close().catch(() => {});
+      // Sanitise the flushed HAR: strip cookies/auth headers + bodies so the
+      // exported evidence never leaks secrets.
+      sanitizeHarFile(join(OUT_DIR, harRel));
     }
   }
   return probeOne(ctx, { category: row.category, host: row.host }, common);

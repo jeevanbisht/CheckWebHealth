@@ -33,3 +33,19 @@ export function oneOf(value, allowed, fallback) {
 
 export const CHANNELS = ["msedge", "chrome", "chromium"];
 export const SHOT_MODES = ["all", "fail", "none"];
+
+// Browser modes for the Manual Browser Parity feature:
+//   manual-parity — real Edge, headed, persistent real profile (match the user)
+//   automated     — fresh temporary profile (the classic automation baseline)
+export const BROWSER_MODES = ["manual-parity", "automated"];
+
+// Coerce a loosely-typed value (string "1"/"true"/etc, number, boolean) to a
+// boolean. Used to normalise config-file/env values for the browser block.
+export function toBool(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (value == null) return fallback;
+  const s = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(s)) return true;
+  if (["0", "false", "no", "off"].includes(s)) return false;
+  return fallback;
+}

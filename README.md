@@ -19,6 +19,7 @@ Born from a real case: `automobiles.honda.com` returned an **Akamai Bot Manager 
 - [Install](#install)
 - [Quick start (A/B: direct vs GSA)](#quick-start-ab-direct-vs-gsa)
 - [CLI reference](#cli-reference)
+- [Manual Browser Parity Mode](#manual-browser-parity-mode)
 - [Two machines (GSA on one, off on the other)](#two-machines-gsa-on-one-off-on-the-other)
 - [Configuration](#configuration)
 - [Interpreting results](#interpreting-results)
@@ -142,6 +143,7 @@ With only one arm present the report renders single-arm (no delta). For a fast s
 | `checkwebhealth sample` | Quick sample probe (`--seed` for cross-machine parity). |
 | `checkwebhealth report` | Build the HTML report (`--open` to launch it). |
 | `checkwebhealth evidence` | Re-screenshot the non-`OK` rows of a run (`--har`). |
+| `checkwebhealth parity <url>` | **Manual Browser Parity**: compare your real Edge profile against a temporary automated profile (`--open`). |
 | `checkwebhealth config` | Print the effective, resolved configuration. |
 | `checkwebhealth version` | Print the installed version. |
 | `checkwebhealth help [cmd]` | Show help for the CLI or a command. |
@@ -160,11 +162,61 @@ Common flags (run `checkwebhealth help <command>` for the full list):
 | `--shots <mode>` | probe | `all` / `fail` / `none`. |
 | `--seed <n>` | sample | Fix the RNG so two machines pick the same sites. |
 | `--har` | evidence | Export a per-host `.har` for each failed row. |
+| `--url <url>` | parity | Target URL to compare (default `https://www.bing.com`). |
+| `--mode <m>` | parity | `manual-parity` (real profile) or `automated` (temp profile). |
+| `--profile-directory <p>` | parity · doctor | Edge profile: `Default`, `"Profile 1"`, … |
+| `--user-data-dir <dir>` | parity · doctor | Edge *User Data* dir (default: the OS default). |
+| `--manual-fails` | parity | Record that manual Edge also fails (real network/site failure). |
 | `-o, --output <dir>` | all | Output directory for results, screenshots and the report. |
-| `--open` | report | Open the report when done. |
+| `--open` | report · parity | Open the report when done. |
 | `--json` | doctor · config · version | Machine-readable output (great for CI). |
 
 > The classic `npm run probe` / `PROBE_ARM=gsa` workflow still works (see [Configuration](#configuration)); the CLI flags are just a friendlier, cross-platform front end over the same engine.
+
+---
+
+## Manual Browser Parity Mode
+
+Sometimes a site loads fine in your **normal Microsoft Edge** but fails under the automated diagnostic browser. That gap is not a network failure — it is the *diagnostic browser environment* (a throwaway profile, headless mode, no cookies, the automation flag). **Manual Browser Parity Mode** makes the automated browser match your normal Edge as closely as possible so CheckWebHealth can tell those two cases apart.
+
+> **This is browser parity, not stealth.** Parity mode does **not** implement anti-bot bypass, CAPTCHA bypass, or deception. Nothing is hidden or spoofed — `navigator.webdriver` is left at its honest value and reported as-is. The goal is accurate troubleshooting, not bypassing a site's protections.
+
+```bash
+checkwebhealth parity https://automobiles.honda.com --open
+```
+
+It runs the target through **two** automated browsers and compares them:
+
+1. **Automated Edge — temporary profile** (the classic automation baseline: fresh profile, headless, no cookies).
+2. **Manual-parity Edge** — real Edge (`channel:msedge`), **headed**, your **real persistent profile**, so cookies, local/session storage, language, timezone, certificates, proxy and preferences are *your* real ones.
+
+The console (and the `parity-report.html`) then shows the three-way result and a classification:
+
+```
+Manual Edge                       : works
+Automated Edge temporary profile  : FAILS
+Automated Edge manual-parity      : works
+
+Classification: AUTOMATION_OR_BROWSER_POSTURE
+Sub-reasons: TEMP_PROFILE_USED, MISSING_COOKIES, HEADLESS_MODE
+```
+
+If manual/real-profile Edge works but the temporary-profile automation fails, the verdict is **`AUTOMATION_OR_BROWSER_POSTURE`** (the failure is the diagnostic browser, not the network) with one or more sub-reasons: `TEMP_PROFILE_USED`, `MISSING_COOKIES`, `BROWSER_VERSION_MISMATCH`, `HEADLESS_MODE`, `PROFILE_NOT_LOADED`, `SCRIPT_OR_RESOURCE_FAILURE`, `CLIENT_POSTURE_POLICY`, `SITE_REJECTS_AUTOMATED_BROWSER`. If the target also fails manually (`--manual-fails`), it is a **`NETWORK_OR_SITE_FAILURE`** instead.
+
+**Choosing a profile.** Edge keeps multiple profiles under one *User Data* dir. Pick one with `--profile-directory`:
+
+```bash
+checkwebhealth parity https://site.example --profile-directory "Profile 1"
+checkwebhealth parity https://site.example --user-data-dir "D:\\EdgeProfiles\\diag" --profile-directory Default
+```
+
+**Safety:**
+
+- Parity mode opens your **real** Edge profile — **close all Edge windows first**. If the profile is **locked** (Edge is running), CheckWebHealth automatically falls back to a **safe copied diagnostic profile** (caches and lock files excluded) and clearly reports that the copied profile was used.
+- Cookie/token **values are never printed, stored, or written to the report** — only cookie *names* and counts.
+- Exported `.har` files are sanitised (cookie/authorization headers and request/response bodies stripped).
+
+Run `checkwebhealth doctor` for a parity preflight: Edge installed + version, selected profile found, profile lock status, headless status, system proxy, whether automation is detectable, cookies available, and recommended fixes.
 
 ---
 
@@ -213,6 +265,29 @@ Settings resolve with the precedence **built-in defaults → `probe.config.json`
 
 Each `paths` entry maps to a `results-<id>.json` output file; the report lines every path up into the Comparison Matrix automatically (add a 3rd path, e.g. `azure-vm`, and it appears). Inspect the resolved config any time with `checkwebhealth config` (add `--json` for machine output).
 
+### Browser parity block
+
+[Manual Browser Parity Mode](#manual-browser-parity-mode) is configured under a nested `browser` object (all fields optional; shown with their defaults):
+
+```json
+{
+  "browser": {
+    "mode": "manual-parity",
+    "channel": "msedge",
+    "headless": false,
+    "usePersistentProfile": true,
+    "userDataDir": "C:\\Users\\<user>\\AppData\\Local\\Microsoft\\Edge\\User Data",
+    "profileDirectory": "Default",
+    "viewport": null,
+    "locale": "system",
+    "timezone": "system",
+    "useSystemProxy": true
+  }
+}
+```
+
+`userDataDir: null` (omit it) resolves the OS-default Edge *User Data* dir. `viewport: null` uses the real window size; `locale`/`timezone` of `"system"` leave the OS/profile values untouched — together these maximise parity with your normal Edge.
+
 Environment variables (equivalent to the flags, for the `npm run *` workflow):
 
 | Var | Flag | Default | Purpose |
@@ -228,6 +303,11 @@ Environment variables (equivalent to the flags, for the `npm run *` workflow):
 | `SHOTS_MODE` | `--shots` | `fail` | `all` / `fail` / `none`. |
 | `HAR` | `--har` | unset | `1` to export per-host `.har` on the evidence pass. |
 | `OUT_DIR` | `--output` | `checkwebhealth-results/catalog` | Output directory. |
+| `BROWSER_MODE` | `--mode` | `manual-parity` | Parity browser mode (`manual-parity`/`automated`). |
+| `BROWSER_HEADLESS` | — | `0` | `1` to run parity headless (headed by default). |
+| `PROFILE_DIRECTORY` | `--profile-directory` | `Default` | Edge profile dir for parity/doctor. |
+| `USER_DATA_DIR` | `--user-data-dir` | OS default | Edge *User Data* dir for parity/doctor. |
+| `USE_SYSTEM_PROXY` | — | `1` | `0` to ignore the OS/Edge proxy in parity mode. |
 
 ---
 
@@ -363,6 +443,8 @@ Yes — add a `paths` entry (e.g. `azure-vm`), probe with `--arm azure-vm`, and 
 
 - Probe output (`results-*.json`, `.har`) can contain cookies, edge IPs and tokens. `.gitignore` excludes `checkwebhealth-results/`, `har/` / `*.har`, and `node_modules/` so they are **never committed**.
 - The HTML report is self-contained and safe to email/share (cookie *values* are never stored — only names). Treat the raw `results-*.json` as sensitive if it leaves the machine.
+- **Manual Browser Parity** never reads or records cookie/token **values** — only names and counts. The `parity-report.json` / `.html` are safe to share. Exported `.har` files are **sanitised** (cookie/authorization headers and request/response bodies stripped). When the real Edge profile is locked, a **copied** diagnostic profile is used (caches excluded) and removed after the run.
+- Parity mode is a diagnostics aid (browser parity), **not** stealth or anti-bot bypass: it does not hide automation or attempt to defeat a site's protections.
 - See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ---

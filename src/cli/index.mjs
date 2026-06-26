@@ -11,6 +11,7 @@ import { runScript } from "./run.mjs";
 import { doctor } from "./commands/doctor.mjs";
 import { init } from "./commands/init.mjs";
 import { showConfig } from "./commands/config.mjs";
+import { parity } from "./commands/parity.mjs";
 import { loadConfig } from "../core/config.mjs";
 
 function pkgVersion() {
@@ -66,6 +67,15 @@ export async function main(argv = []) {
     case "doctor": return doctor(options);
     case "init": return init(options);
     case "config": return showConfig(options, toOverrides(options));
+    case "parity": {
+      try {
+        return await parity(options, positionals);
+      } catch (e) {
+        process.stderr.write(`\nerror: parity failed: ${(e.message || e).toString().split("\n")[0]}\n`);
+        process.stderr.write(`hint: run "checkwebhealth doctor" to check Edge, the profile and automation posture.\n`);
+        return 1;
+      }
+    }
     case "probe":
     case "sample":
     case "evidence":
