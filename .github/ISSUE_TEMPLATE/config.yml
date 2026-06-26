@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the documentation
+    url: https://github.com/jeevanbisht/CheckWebHealth#readme
+    about: Start with the README for setup, usage, and result interpretation.
+  - name: Ask a question in Discussions
+    url: https://github.com/jeevanbisht/CheckWebHealth/discussions
+    about: Use Discussions for questions, ideas, and troubleshooting that is not a confirmed bug.

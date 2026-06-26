@@ -1,38 +1,53 @@
 # CheckWebHealth
 
-Diagnose whether a network egress path — especially **Microsoft Global Secure Access (GSA)** —
-is being blocked by CDN / WAF **bot-detection** (Akamai Bot Manager, Cloudflare, Imperva, AWS
-CloudFront/WAF, and others), and produce a shareable, evidence-grade report.
+> Diagnose whether a network egress path — especially **Microsoft Global Secure Access (GSA)** — is being blocked by CDN / WAF **bot-detection** (Akamai Bot Manager, Cloudflare, Imperva, AWS CloudFront/WAF, and others), and produce a shareable, evidence-grade HTML report.
 
-Born from a real case: `automobiles.honda.com` returned an **Akamai Bot Manager 403 "Access
-Denied"** for GSA-tunneled users. This kit answers the follow-up question objectively — **where
-else does this reproduce, and is the network actually the cause?** — across 2,500 sites.
+Born from a real case: `automobiles.honda.com` returned an **Akamai Bot Manager 403 "Access Denied"** for GSA-tunneled users. This tool answers the follow-up question objectively — **where else does this reproduce, and is the network actually the cause?** — across a 2,500-site catalog.
 
+[![CI](https://github.com/jeevanbisht/CheckWebHealth/actions/workflows/ci.yml/badge.svg)](https://github.com/jeevanbisht/CheckWebHealth/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Playwright](https://img.shields.io/badge/playwright-Edge%20%2F%20Chromium-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
+## Table of contents
+
+- [Why this is defensible](#why-this-is-defensible)
+- [How it works](#how-it-works)
+- [Architecture](#architecture)
+- [Install](#install)
+- [Quick start (A/B: direct vs GSA)](#quick-start-ab-direct-vs-gsa)
+- [CLI reference](#cli-reference)
+- [Two machines (GSA on one, off on the other)](#two-machines-gsa-on-one-off-on-the-other)
+- [Configuration](#configuration)
+- [Interpreting results](#interpreting-results)
+- [JSON output schema](#json-output-schema)
+- [The report](#the-report)
+- [Supported environments](#supported-environments)
+- [Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [Security & privacy](#security--privacy)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Why this is defensible
 
-A bare `403` from one vantage point proves nothing. This kit is built around the two signals that
-*do* hold up when escalated to a CDN/WAF vendor:
+A bare `403` from one vantage point proves nothing. This tool is built around the two signals that *do* hold up when escalated to a CDN/WAF vendor:
 
-1. **`NETWORK-CAUSED`** — the site loads `OK` on a **direct** connection but fails through **GSA**.
-   Run the same probe twice (off-tunnel baseline + on-tunnel test); the report diffs the two arms.
-   These are the only rows that prove the network path is the cause.
-2. **`IP_REPUTATION`** — the Akamai bot sensor cookie (`_abck`) is **passed** (browser fingerprint
-   accepted), yet the request is still denied ⇒ the block is driven by **egress-IP/ASN reputation**,
-   not the browser. Paired with the captured **egress IP + ASN** and the CDN **`Reference #`**, this
-   is a traceable hand-off the vendor can look up in their logs.
+1. **`NETWORK-CAUSED`** — the site loads `OK` on a **direct** connection but fails through **GSA**. Run the same probe twice (off-tunnel baseline + on-tunnel test); the report diffs the two arms. These are the only rows that prove the *network path* is the cause.
+2. **`IP_REPUTATION`** — the Akamai bot sensor cookie (`_abck`) is **passed** (browser fingerprint accepted), yet the request is still denied ⇒ the block is driven by **egress-IP/ASN reputation**, not the browser. Paired with the captured **egress IP + ASN** and the CDN **`Reference #`**, this is a traceable hand-off the vendor can look up in their logs.
+
+> **Authentication is not a block.** A `401`, or a redirect to a known identity provider (Microsoft Entra/Azure AD, Okta, Ping, Duo, ADFS), is classified as `AUTH_REQUIRED` — never as a `BLOCKED` or `NETWORK-CAUSED` failure.
 
 ---
 
 ## How it works
 
-Drives a **real browser — Microsoft Edge (`channel:msedge`) by default** with light anti-automation
-stealth (to remove the "headless = bot" confound) to each site, and records per site:
+Drives a **real browser — Microsoft Edge (`channel:msedge`) by default** with light anti-automation stealth (to remove the "headless = bot" confound) to each site, and records per site:
 
 | Captured | Detail |
 |----------|--------|
@@ -44,116 +59,151 @@ stealth (to remove the "headless = bot" confound) to each site, and records per 
 | **CDN edge IP / failure layer** | `edge:` IP that served the response; for errors, the failed `layer:` (DNS/TCP/TLS/TIMEOUT/HTTP) |
 | **Egress IP + ASN/org** | The public IP and ASN the request exited from (per arm) |
 | **Screenshot** | Captured at the moment of the block for every non-`OK` row (evidence that survives a retry) |
-| **Specific reason** | Machine-readable cause alongside the verdict — `DNS_FAILURE` · `TCP_FAILURE` · `TLS_FAILURE` · `TIMEOUT` · `RESET_CONNECTION` · `HTTP_403/404/429/5XX` · `WAF_BLOCK` · `IP_REPUTATION` · `AUTH_REQUIRED` |
-| **Attempt history** | Every attempt is logged (`attemptLog`) and rolled up to `PASS` · `RECOVERED` · `FAILED_ONCE` · `FAILED_TWICE` · `FAILED_ALL` — a failure is never decided from a single try |
-| **Failure evidence** | On non-`OK` rows only: a per-host network log + browser console log (and a true `.har` on the evidence pass with `HAR=1`). Successful runs stay lightweight. |
+| **Specific reason** | Machine-readable cause alongside the verdict — `DNS_FAILURE` · `TLS_FAILURE` · `TIMEOUT` · `HTTP_403/404/429/5XX` · `WAF_BLOCK` · `IP_REPUTATION` · `AUTH_REQUIRED` |
+| **Attempt history** | Every attempt is logged and rolled up to `PASS` · `RECOVERED` · `FAILED_ONCE/TWICE/ALL` — a failure is never decided from a single try |
+| **Failure evidence** | On non-`OK` rows only: a per-host network log + browser console log (and a true `.har` on the evidence pass with `--har`). Successful runs stay lightweight. |
 
-> **Authentication is not a block.** A `401`, or a redirect to a known identity provider
-> (Microsoft Entra/Azure AD, Okta, Ping, Duo, ADFS), is classified as `AUTH_REQUIRED` — never as a
-> `BLOCKED` or `NETWORK-CAUSED` failure.
-
-The output is a **single self-contained HTML report**, tabbed by category, with per-category and
-overall summaries, an egress banner, a **top-failure-reasons** bar, combinable
-**verdict / vendor / status filters**, **click-to-sort** columns, and an **Excel export** of the
-filtered view.
+The output is a **single self-contained HTML report**, tabbed by category, with per-category and overall summaries, an egress banner, a top-failure-reasons bar, combinable verdict / vendor / status filters, click-to-sort columns, and an Excel export of the filtered view.
 
 ---
 
-## Quick start
+## Architecture
+
+```
+        bin/checkwebhealth.mjs            ← CLI entry (shebang)
+                  │
+        src/cli/ (args · spec · help)     ← parse flags, dispatch
+          │                 │
+   native commands     env-bridge (run.mjs)
+   doctor/init/config   maps flags → env vars
+          │                 │
+          ▼                 ▼
+        config.mjs   probe-catalog.mjs / probe-sample.mjs / probe-evidence.mjs
+   (DEFAULTS ← file ← env ← flags)        render-catalog-html.mjs
+                  │                                 │
+                  ▼                                 ▼
+            probe-core.mjs                   report-catalog.html
+   (launch · classify · verdict · retry · evidence)
+                  │
+            sites-catalog.mjs (50 × 50 = 2,500 hosts)
+```
+
+- **`probe-core.mjs`** is the detection engine: browser launch + stealth, egress IP/ASN capture, vendor detection, the verdict taxonomy (`classify`), specific-reason mapping (`deriveReason`), retry/attempt logging, redirect-chain timing, header capture/diff and confidence scoring. **This is the logic you should not redesign** — bug fixes welcome, behavioural changes need an issue first.
+- **`config.mjs`** is the single source of run config: built-in `DEFAULTS` ← `probe.config.json` ← environment variables ← explicit overrides (CLI flags), all validated and clamped.
+- The **CLI** is a thin, cross-platform front end. Its flags map onto the same env vars the scripts already read, so the `npm run probe` / `PROBE_ARM=gsa` workflow keeps working unchanged.
+
+---
+
+## Install
 
 ```bash
-npm install
-npm run setup          # installs Microsoft Edge + Chromium browser binaries
+# one-off, no install:
+npx checkwebhealth doctor
+
+# or install globally:
+npm install -g checkwebhealth
+checkwebhealth doctor
 ```
 
-Then run the **A/B method** — the same probe off-GSA (baseline) and on-GSA (test):
+The first probe needs browser binaries. `doctor` tells you if any are missing:
 
-```powershell
-$env:PROBE_ARM="direct"; npm run probe   # GSA OFF — baseline
-$env:PROBE_ARM="gsa";    npm run probe   # GSA ON  — test
-npm run report                           # merges both arms into the report
-Start-Process .\akamai-probe-results\catalog\report-catalog.html
+```bash
+checkwebhealth doctor                     # ✓ Node ✓ Playwright ✓ Browser ✓ Network
+npx playwright install chromium msedge    # run this if doctor reports a missing browser
 ```
 
-With only one arm present the report renders single-arm (no delta). For a fast smoke test, run
-`npm run sample` (10 categories).
+Working from a clone instead of the published package? See **[INSTALL.md](INSTALL.md)**.
 
-### Two machines (GSA on one, off on the other)
+---
 
-You can also run each arm on a **separate machine** — one inside the GSA tunnel, one on plain
-internet — then copy the JSON onto one box to render. The report scans `OUT_DIR` for every
-`results-<arm>.json` and lines arms up **per `category|host`**, so both machines must probe the
-**same hosts**:
+## Quick start (A/B: direct vs GSA)
 
-```powershell
+Run the same probe twice — once **off** the GSA tunnel (baseline) and once **on** it (test) — then build the report:
+
+```bash
+checkwebhealth probe --arm direct     # GSA OFF — baseline  -> results-direct.json
+checkwebhealth probe --arm gsa        # GSA ON  — test      -> results-gsa.json
+checkwebhealth report --open          # merge both arms, open the HTML report
+```
+
+With only one arm present the report renders single-arm (no delta). For a fast smoke test (10 random categories): `checkwebhealth sample`.
+
+> **Concurrency defaults to `4` on purpose.** Hammering many CDN-fronted sites from one egress IP itself trips rate/reputation limits and manufactures false blocks. Raise it only if you understand the tradeoff: `checkwebhealth probe --concurrency 2`.
+
+---
+
+## CLI reference
+
+| Command | Purpose |
+|---------|---------|
+| `checkwebhealth doctor` | Check Node, Playwright, a launchable browser and outbound network. |
+| `checkwebhealth init` | Write a starter `probe.config.json`. |
+| `checkwebhealth probe` | Full catalog probe (tag the arm with `--arm`). |
+| `checkwebhealth sample` | Quick sample probe (`--seed` for cross-machine parity). |
+| `checkwebhealth report` | Build the HTML report (`--open` to launch it). |
+| `checkwebhealth evidence` | Re-screenshot the non-`OK` rows of a run (`--har`). |
+| `checkwebhealth config` | Print the effective, resolved configuration. |
+| `checkwebhealth version` | Print the installed version. |
+| `checkwebhealth help [cmd]` | Show help for the CLI or a command. |
+
+Common flags (run `checkwebhealth help <command>` for the full list):
+
+| Flag | Applies to | Purpose |
+|------|------------|---------|
+| `--arm <id>` | probe · sample · evidence | Path id this run exercises (`direct`, `gsa`, …). |
+| `-c, --concurrency <n>` | probe | Parallel browser contexts (default `4`). |
+| `--retries <n>` | probe · sample | Max attempts per site (transient `429/503` retried). |
+| `--nav-timeout <ms>` | probe · sample | Per-navigation timeout. |
+| `--settle <ms>` | probe · sample | Settle time before reading page state. |
+| `--channel <ch>` | probe · sample · evidence | `msedge` / `chrome` / `chromium`. |
+| `--headed` | probe · sample · evidence | Visible (headed) browser. |
+| `--shots <mode>` | probe | `all` / `fail` / `none`. |
+| `--seed <n>` | sample | Fix the RNG so two machines pick the same sites. |
+| `--har` | evidence | Export a per-host `.har` for each failed row. |
+| `-o, --output <dir>` | all | Output directory for results, screenshots and the report. |
+| `--open` | report | Open the report when done. |
+| `--json` | doctor · config · version | Machine-readable output (great for CI). |
+
+> The classic `npm run probe` / `PROBE_ARM=gsa` workflow still works (see [Configuration](#configuration)); the CLI flags are just a friendlier, cross-platform front end over the same engine.
+
+---
+
+## Two machines (GSA on one, off on the other)
+
+You can run each arm on a **separate machine** — one inside the GSA tunnel, one on plain internet — then copy the JSON onto one box to render. The report scans the output directory for every `results-<arm>.json` and lines arms up **per `category|host`**, so both machines must probe the **same hosts**:
+
+```bash
 # Machine A — NO GSA (baseline)
-$env:PROBE_ARM="direct"; npm run probe          # -> results-direct.json
+checkwebhealth probe --arm direct        # -> results-direct.json
 
 # Machine B — WITH GSA (test)
-$env:PROBE_ARM="gsa";    npm run probe           # -> results-gsa.json
+checkwebhealth probe --arm gsa           # -> results-gsa.json
 
-# On one machine: drop both files into akamai-probe-results/catalog/ and render
-npm run report
+# Copy both files into one machine's output dir, then:
+checkwebhealth report --open
 ```
 
-`npm run probe` is deterministic (every catalog host), so the two arms always line up. If you'd
-rather smoke-test with `npm run sample` (10 **random** sites), pass the **same `SEED`** on both
-machines so each arm picks the identical sites — otherwise the delta is empty:
+`probe` is deterministic (every catalog host), so the two arms always line up. If you'd rather smoke-test with `sample` (10 **random** sites), pass the **same `--seed`** on both machines so each arm picks identical sites — otherwise the delta is empty:
 
-```powershell
-$env:SEED="42"; $env:PROBE_ARM="direct"; npm run sample   # Machine A -> results-direct.json
-$env:SEED="42"; npm run sample                            # Machine B -> results-gsa.json
+```bash
+checkwebhealth sample --arm direct --seed 42   # Machine A -> results-direct.json
+checkwebhealth sample --arm gsa    --seed 42   # Machine B -> results-gsa.json
 ```
-
-(The sample run prints its seed; copy that number to the other machine.)
-
-> **Concurrency defaults to `4` on purpose.** Hammering many CDN-fronted sites from one egress IP
-> itself trips rate/reputation limits and manufactures false blocks. Override with `CONC` only if you
-> understand the tradeoff: `$env:CONC=2; npm run probe`.
-
-Full setup: **[INSTALL.md](INSTALL.md)** · usage, env vars & interpreting results:
-**[GSA-Catalog-Probe-Runbook.md](GSA-Catalog-Probe-Runbook.md)**
 
 ---
 
-## npm scripts
+## Configuration
 
-| Script | Action |
-|--------|--------|
-| `npm run setup` | Install the Microsoft Edge + Chromium browser binaries |
-| `npm test` | Run the unit tests for the classification helpers (Node's built-in runner — no extra deps) |
-| `npm run sample` | Run a 10-category sample probe (with screenshots) |
-| `npm run probe` | Run the full 2,500-site catalog probe (tag the arm via `PROBE_ARM`) |
-| `npm run evidence` | Re-screenshot the non-`OK` rows of an existing run (add `HAR=1` for per-host `.har`) |
-| `npm run report` | Build the tabbed HTML report from results |
-| `npm run all` | Probe + report |
-
----
-
-## Project layout
-
-| File | Purpose |
-|------|---------|
-| `sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
-| `probe-core.mjs` | Shared probe engine: Edge launch + stealth, egress IP/ASN capture, classify, auth-vs-block detection, specific-reason taxonomy, retries + attempt log, failure evidence, redirect-chain timing, header capture/diff, confidence scoring. |
-| `config.mjs` | Single source of run config. Merges built-in `DEFAULTS` ← `probe.config.json` ← environment variables (`loadConfig()`). |
-| `probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` (+ legacy `results-catalog.json`). |
-| `probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
-| `probe-evidence.mjs` | Re-screenshots the non-`OK` rows of an existing run (resilient + resumable); `HAR=1` adds per-host `.har`. |
-| `render-catalog-html.mjs` | Renders the tabbed, interactive HTML report; merges arms into a delta, a **Comparison Matrix** of per-path verdicts, a **Confidence** column, redirect chains and per-row header diffs. |
-| `tests/` | Unit tests for the pure helpers — classification, config precedence, header diff, confidence scoring (`npm test`). |
-
-### Configuration file (`probe.config.json`)
-
-All run settings have built-in defaults and can be overridden by an optional `probe.config.json`
-in the repo root, which is in turn overridden by environment variables (env wins). Example:
+Settings resolve with the precedence **built-in defaults → `probe.config.json` → environment variables → CLI flags** (later wins). Generate a starter file with `checkwebhealth init`:
 
 ```json
 {
-  "retries": 3,
-  "concurrency": 6,
-  "navTimeout": 30000,
-  "settleMs": 3000,
+  "retries": 2,
+  "concurrency": 4,
+  "navTimeout": 25000,
+  "settleMs": 2500,
+  "channel": "msedge",
+  "shots": "fail",
   "paths": [
     { "id": "direct", "label": "Direct Internet" },
     { "id": "gsa", "label": "Microsoft GSA" }
@@ -161,47 +211,165 @@ in the repo root, which is in turn overridden by environment variables (env wins
 }
 ```
 
-Each `paths` entry maps to a `results-<id>.json` output file; the report lines every path up
-into the Comparison Matrix automatically (add a 3rd path, e.g. `azure-vm`, and it appears).
+Each `paths` entry maps to a `results-<id>.json` output file; the report lines every path up into the Comparison Matrix automatically (add a 3rd path, e.g. `azure-vm`, and it appears). Inspect the resolved config any time with `checkwebhealth config` (add `--json` for machine output).
 
-Key environment variables (full list in the Runbook):
+Environment variables (equivalent to the flags, for the `npm run *` workflow):
 
-| Var | Default | Purpose |
-|-----|---------|---------|
-| `PROBE_ARM` | `gsa` | Tags the run + output file (`direct` / `gsa` / any path id). |
-| `SEED` | unset | Fixed RNG seed for `npm run sample`. Share one seed across machines so each arm probes the **same** random sites (so the A/B delta lines up). Unset => `Date.now()`. |
-| `CONC` | `4` | Parallel browser contexts. Keep modest. |
-| `PROBE_RETRIES` | `2` | Max attempts per site. Transient `429/503` are retried; the full attempt history is recorded. |
-| `NAV_TIMEOUT` | `25000` | Per-navigation timeout (ms). |
-| `SETTLE_MS` | `2500` | Time to let the page settle before reading state (ms). |
-| `OUT_DIR` | `akamai-probe-results/catalog` | Output directory for results, screenshots and evidence. |
-| `PROBE_CHANNEL` | `msedge` | Browser channel (`msedge` / `chrome` / `chromium`). |
-| `PROBE_HEADED` | unset | Set `1` for a headed (visible) run — best forensic fidelity. |
-| `SHOTS` | unset | Set `1` to screenshot every site (heavy for 2,500 sites). |
-| `HAR` | unset | On `npm run evidence`, set `1` to export a true per-host `.har` for each failed row. |
+| Var | Flag | Default | Purpose |
+|-----|------|---------|---------|
+| `PROBE_ARM` | `--arm` | `gsa` | Tags the run + output file. |
+| `SEED` | `--seed` | unset | Fixed RNG seed for `sample`. |
+| `CONC` | `--concurrency` | `4` | Parallel browser contexts. |
+| `PROBE_RETRIES` | `--retries` | `2` | Max attempts per site. |
+| `NAV_TIMEOUT` | `--nav-timeout` | `25000` | Per-navigation timeout (ms). |
+| `SETTLE_MS` | `--settle` | `2500` | Settle time before reading state (ms). |
+| `PROBE_CHANNEL` | `--channel` | `msedge` | Browser channel. |
+| `PROBE_HEADED` | `--headed` | unset | `1` for a headed run. |
+| `SHOTS_MODE` | `--shots` | `fail` | `all` / `fail` / `none`. |
+| `HAR` | `--har` | unset | `1` to export per-host `.har` on the evidence pass. |
+| `OUT_DIR` | `--output` | `akamai-probe-results/catalog` | Output directory. |
 
-### Report: matrix, confidence, redirects & header diff
+---
 
-- **Comparison Matrix** tab — for every site whose verdict is **not** identical across all probed
-  paths, a `Site | Direct | GSA | … | Confidence` grid. This is where a path-specific (e.g.
-  GSA-only) block stands out at a glance.
-- **Confidence** column — a 5–99% score with the contributing factors on hover (e.g. *direct loads
-  OK but GSA fails*, *same result across 3 attempts*, *Akamai `_abck` passed yet denied*). Single
-  path / timeout / DNS flakes score low; corroborated, consistent, strong-signal failures score high.
-- **Redirect chain** — each hop's status, `Location`, protocol and per-hop timing, so you can see
-  *where* in the chain a failure occurred (not just the final URL).
-- **Header diff** — on dual-arm runs, the headers that changed between the `direct` baseline and the
-  path under test (Server, Via, cache, HSTS, CDN trace IDs). Only header **names** are stored for
-  cookies — never values — so the report stays shareable.
+## Interpreting results
+
+| Verdict | Meaning |
+|---------|---------|
+| `NETWORK-CAUSED` | Loads `OK` on the **direct** baseline but fails through **GSA** — the actionable, network-attributable failures. |
+| `IP_REPUTATION` | Bot sensor validated the browser (`_abck passed`) yet the request was still denied ⇒ block keyed on egress IP/ASN. Strongest single signal for a CDN escalation. |
+| `BLOCKED` | HTTP 403/429/444/451/503 or an access-denied block page (a real block). |
+| `AUTH_REQUIRED` | Expected authentication — a `401` or a redirect to a known IdP. Deliberately **not** a block. |
+| `HUMAN_CHALLENGE` | Visible captcha / "verify you are human" interstitial. |
+| `BOT_CHALLENGE` | JS/sensor challenge state (`_abck challenged` / Cloudflare `cf-chl`). |
+| `OK` | 2xx/3xx. |
+| `ERROR` | Navigation failed — see the `layer:` (DNS/TCP/TLS/TIMEOUT/HTTP). |
+
+The **Confidence** column (5–99%) rates how trustworthy each diagnosis is: corroborated across paths, consistent across attempts, and strong-signal failures score high; single-path, timeout or DNS flakes score low. Hover any score for its contributing factors.
+
+---
+
+## JSON output schema
+
+Each arm writes `results-<arm>.json`:
+
+```jsonc
+{
+  "meta": {
+    "arm": "gsa",                       // path id this run exercised
+    "paths": [{ "id": "direct", "label": "Direct Internet" }, …],
+    "seed": 1782438800595,              // sample only
+    "browser": { "channel": "msedge", "headless": true, "stealth": true },
+    "egress": { "ip": "…", "asn": "AS8075", "org": "…", "country": "US", "source": "ipinfo.io" },
+    "startedAt": "2026-06-25T…Z",
+    "finishedAt": "2026-06-25T…Z"
+  },
+  "results": [
+    {
+      "arm": "gsa",
+      "category": "Automotive — OEM",
+      "host": "automobiles.honda.com",
+      "url": "https://automobiles.honda.com",
+      "finalUrl": "https://automobiles.honda.com",
+      "status": 403,
+      "vendor": "Akamai",
+      "abck": "passed",                 // no-_abck | passed | challenged | present
+      "edgeIp": "23.x.x.x",
+      "reference": "Reference #18.…",   // CDN trace id (failed rows)
+      "wafHeaders": { "akamai-grn": "…" },
+      "headers": { "server": "AkamaiGHost", … },   // curated; cookie NAMES only
+      "redirectChain": [{ "url": "…", "status": 301, "ms": 42 }, …],
+      "attempts": 1,
+      "attemptLog": [{ "n": 1, "status": 403, "verdict": "IP_REPUTATION", "reason": "IP_REPUTATION", "ms": null }],
+      "passSummary": "FAILED_ONCE",
+      "errorLayer": "",
+      "reason": "IP_REPUTATION",
+      "verdict": "IP_REPUTATION",
+      "screenshot": "shots/automotive-oem/IP_REPUTATION/automobiles-honda-com.png"
+    }
+  ]
+}
+```
+
+`results-catalog.json` is a legacy flat array of `results` (last arm written); the report ignores it when `results-<arm>.json` files exist.
+
+---
+
+## The report
+
+- **Comparison Matrix** tab — for every site whose verdict is **not** identical across all probed paths, a `Site | Direct | GSA | … | Confidence` grid. Path-specific (e.g. GSA-only) blocks stand out at a glance.
+- **Confidence** column — a 5–99% score with the contributing factors on hover.
+- **Redirect chain** — each hop's status, `Location`, protocol and per-hop timing, so you can see *where* in the chain a failure occurred.
+- **Header diff** — on dual-arm runs, the headers that changed between the `direct` baseline and the path under test. Only header **names** are stored for cookies — never values — so the report stays shareable.
+- **Filters & export** — combinable verdict / vendor / status filters, click-to-sort columns, and an Excel export of the filtered view.
+
+---
+
+## Supported environments
+
+| | |
+|---|---|
+| **Node.js** | 18, 20, 22 (CI-tested) |
+| **OS** | Windows, macOS, Linux |
+| **Browsers** | Microsoft Edge (`msedge`, default), Chrome, or bundled Chromium |
+| **Network** | Outbound 443 (the egress IP/ASN capture calls `ipinfo.io`, falling back to `ipify.org`) |
+
+---
+
+## Limitations
+
+- Results reflect **the egress IP/ASN you ran from at that moment**. CDN reputation is dynamic; re-run to confirm a finding.
+- The catalog is a **best-effort** curated list of real domains; some entries may move, redirect, or retire over time.
+- A high `--concurrency` from a single IP can **manufacture** rate-limit blocks. The default of 4 is deliberate.
+- This tool detects and *attributes* blocks; it does **not** attempt to bypass bot defenses.
+- Headless detection is mitigated with stealth + real Edge, but cannot be guaranteed against every vendor.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `checkwebhealth: command not found` | Use `npx checkwebhealth …`, or `npm install -g checkwebhealth`. |
+| `Cannot find module 'playwright'` | `npm install` (from a clone) — then `checkwebhealth doctor`. |
+| `browserType.launch: Executable doesn't exist` | `npx playwright install chromium msedge`. |
+| Linux: launch fails on missing `.so` libs | `sudo npx playwright install-deps chromium`. |
+| Many `ERROR` rows | Check the `layer:` tag (DNS/TLS/TCP = network path, not WAF). Raise `--nav-timeout`, re-run. |
+| Corporate proxy blocks the browser download | Set `HTTPS_PROXY`/`HTTP_PROXY`, or pre-stage the Playwright browser cache. |
+
+Run `checkwebhealth doctor` first — it pinpoints which prerequisite is missing.
+
+---
+
+## FAQ
+
+**Is a `403` proof that GSA is broken?**
+No — that's the whole point. Only `NETWORK-CAUSED` (OK direct, fails on GSA) and `IP_REPUTATION` (`_abck` passed but denied) are defensible. A `403` on *both* arms is the site blocking everyone, not the network.
+
+**Why is a `401`/login redirect not a block?**
+That's expected authentication. It's classified as `AUTH_REQUIRED` and never counted as a network/WAF failure.
+
+**Do I have to probe all 2,500 sites?**
+No — `checkwebhealth sample` hits 10 random categories for a quick read. Use `--seed` to make a sample reproducible across machines.
+
+**Does it bypass bot protection?**
+No. It diagnoses and attributes blocks; it does not defeat them.
+
+**Can I add more network paths than direct/gsa?**
+Yes — add a `paths` entry (e.g. `azure-vm`), probe with `--arm azure-vm`, and it appears in the Comparison Matrix automatically.
 
 ---
 
 ## Security & privacy
 
-- Probe output (`results-*.json`) can contain cookies, edge IPs, and tokens. `.gitignore` excludes
-  `akamai-probe-results/`, `har/` / `*.har`, and `node_modules/` so they are **never committed**.
-- The report is self-contained and safe to email/share, but treat the raw `results-*.json` as
-  sensitive if it leaves the machine.
+- Probe output (`results-*.json`, `.har`) can contain cookies, edge IPs and tokens. `.gitignore` excludes `akamai-probe-results/`, `har/` / `*.har`, and `node_modules/` so they are **never committed**.
+- The HTML report is self-contained and safe to email/share (cookie *values* are never stored — only names). Treat the raw `results-*.json` as sensitive if it leaves the machine.
+- See [SECURITY.md](SECURITY.md) to report a vulnerability.
+
+---
+
+## Contributing
+
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). The detection logic in `probe-core.mjs` and the A/B Direct-vs-GSA methodology are intentionally stable; bug fixes are welcome, redesigns need an issue first. Run `npm test` before pushing.
 
 ---
 

@@ -1,8 +1,7 @@
 {
   "name": "checkwebhealth",
-  "version": "1.0.0",
-  "description": "Probe a catalog of sites through a SASE/GSA tunnel to detect CDN/WAF bot-blocking and render an HTML report",
-  "private": true,
+  "version": "1.1.0",
+  "description": "CLI to probe a catalog of sites and detect CDN/WAF bot-blocking, comparing a direct path against Microsoft GSA (A/B), with a shareable HTML report.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -14,29 +13,58 @@
     "url": "https://github.com/jeevanbisht/CheckWebHealth/issues"
   },
   "keywords": [
+    "cli",
     "gsa",
     "global-secure-access",
     "sase",
     "cdn",
     "waf",
     "bot-detection",
+    "bot-management",
     "akamai",
     "cloudflare",
+    "imperva",
+    "web-health",
     "playwright"
+  ],
+  "bin": {
+    "checkwebhealth": "bin/checkwebhealth.mjs",
+    "cwh": "bin/checkwebhealth.mjs"
+  },
+  "exports": {
+    ".": "./probe-core.mjs",
+    "./config": "./config.mjs",
+    "./catalog": "./sites-catalog.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "*.mjs",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "setup": "playwright install chromium msedge",
-    "test": "node --test tests/probe-core.test.mjs",
+    "test": "node --test tests/probe-core.test.mjs tests/cli.test.mjs",
+    "checkwebhealth": "node bin/checkwebhealth.mjs",
+    "doctor": "node bin/checkwebhealth.mjs doctor",
+    "init": "node bin/checkwebhealth.mjs init",
     "sample": "node probe-sample.mjs",
     "probe": "node probe-catalog.mjs",
     "evidence": "node probe-evidence.mjs",
     "report": "node render-catalog-html.mjs",
-    "all": "node probe-catalog.mjs && node render-catalog-html.mjs"
+    "all": "node probe-catalog.mjs && node render-catalog-html.mjs",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "playwright": "^1.49.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "npm": ">=8"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/jeevanbisht/CheckWebHealth"
   }
 }

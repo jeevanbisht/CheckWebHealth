@@ -6,6 +6,7 @@
 // loadConfig() is pure: pass an explicit env object and/or config file path to
 // exercise it deterministically from unit tests.
 import { readFileSync, existsSync } from "node:fs";
+import { oneOf, CHANNELS, SHOT_MODES } from "./src/utils/validate.mjs";
 
 export const DEFAULTS = {
   // Declarative list of network paths to compare. Each entry tags an output
@@ -34,9 +35,10 @@ function num(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// Merge DEFAULTS ← config file ← environment. `env` and `file` are injectable
-// for testing. Returns a fully-populated config object.
-export function loadConfig(env = process.env, file = "probe.config.json") {
+// Merge DEFAULTS ← config file ← environment ← explicit overrides. `env`, `file`
+// and `overrides` are injectable for testing. `overrides` (e.g. resolved CLI
+// flags) win over everything. Returns a fully-populated, validated config.
+export function loadConfig(env = process.env, file = "probe.config.json", overrides = {}) {
   let fileCfg = {};
   if (file && existsSync(file)) {
     try { fileCfg = JSON.parse(readFileSync(file, "utf8")); } catch { fileCfg = {}; }
@@ -51,11 +53,20 @@ export function loadConfig(env = process.env, file = "probe.config.json") {
   if (env.SETTLE_MS != null) cfg.settleMs = num(env.SETTLE_MS, cfg.settleMs);
   if (env.PROBE_CHANNEL) cfg.channel = env.PROBE_CHANNEL;
   if (env.PROBE_HEADED === "1") cfg.headed = true;
-  if (env.SHOTS === "1") cfg.shots = "all";
+  if (env.SHOTS === "1") cfg.shots = "all"; // legacy boolean toggle
+  if (env.SHOTS_MODE) cfg.shots = env.SHOTS_MODE;
   if (env.HAR === "1") cfg.har = true;
   if (env.OUT_DIR) cfg.outDir = env.OUT_DIR;
-  // Normalise: clamp obviously bad values.
-  cfg.concurrency = Math.max(1, cfg.concurrency);
-  cfg.retries = Math.max(1, cfg.retries);
+  // Explicit overrides (resolved CLI flags) win over env.
+  for (const [k, v] of Object.entries(overrides)) if (v !== undefined) cfg[k] = v;
+  // Normalise + validate: clamp numbers to sane minimums and constrain enums so
+  // a bad value can never reach the probe engine.
+  cfg.concurrency = Math.max(1, num(cfg.concurrency, DEFAULTS.concurrency));
+  cfg.retries = Math.max(1, num(cfg.retries, DEFAULTS.retries));
+  cfg.navTimeout = Math.max(1000, num(cfg.navTimeout, DEFAULTS.navTimeout));
+  cfg.settleMs = Math.max(0, num(cfg.settleMs, DEFAULTS.settleMs));
+  cfg.channel = oneOf(cfg.channel, CHANNELS, DEFAULTS.channel);
+  cfg.shots = oneOf(cfg.shots, SHOT_MODES, DEFAULTS.shots);
+  if (!cfg.arm || typeof cfg.arm !== "string") cfg.arm = DEFAULTS.arm;
   return cfg;
 }

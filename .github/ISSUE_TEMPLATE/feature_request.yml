@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an improvement for CheckWebHealth.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Changes to detection/verdict logic or the A/B Direct-vs-GSA methodology need strong justification, examples, and maintainer discussion before implementation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What user problem are you trying to solve?
+      placeholder: I need CheckWebHealth to ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, CLI shape, or output you would like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other designs have you considered?
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, examples, links, or safe sample output. Do not attach sensitive probe artifacts.
+    validations:
+      required: false
