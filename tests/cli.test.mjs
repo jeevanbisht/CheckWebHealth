@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { parseArgs } from "../src/cli/args.mjs";
 import { isValidHost, normalizeHost, oneOf } from "../src/utils/validate.mjs";
 import { applyEnv } from "../src/cli/run.mjs";
-import { loadConfig, DEFAULTS } from "../config.mjs";
+import { loadConfig, DEFAULTS } from "../src/core/config.mjs";
 
 // ---- arg parser ------------------------------------------------------------
 test("parseArgs reads a bare command", () => {

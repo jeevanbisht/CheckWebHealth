@@ -11,9 +11,9 @@
 // blocks. Override with CONC=, but keep it modest for trustworthy results.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { CATALOG } from "./sites-catalog.mjs";
-import { loadConfig } from "./config.mjs";
-import { launchBrowser, makeContext, captureEgress, probeOne } from "./probe-core.mjs";
+import { CATALOG } from "../core/sites-catalog.mjs";
+import { loadConfig } from "../core/config.mjs";
+import { launchBrowser, makeContext, captureEgress, probeOne } from "../core/probe-core.mjs";
 
 const cfg = loadConfig();
 const ARM = cfg.arm;

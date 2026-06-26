@@ -6,8 +6,8 @@ import {
   classify, authState, deriveReason, summarizePasses,
   detectVendor, abckState, errorLayer, extractReference, slugify,
   BLOCK_STATUS, diffHeaders, scoreConfidence, pickDiffHeaders,
-} from "../probe-core.mjs";
-import { loadConfig, DEFAULTS } from "../config.mjs";
+} from "../src/core/probe-core.mjs";
+import { loadConfig, DEFAULTS } from "../src/core/config.mjs";
 
 // ---- BLOCK_STATUS no longer treats 401 as a block ------------------------
 test("401 is not in BLOCK_STATUS (auth, not block)", () => {

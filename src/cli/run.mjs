@@ -6,10 +6,10 @@
 import { OPTIONS } from "./spec.mjs";
 
 const SCRIPTS = {
-  probe: "../../probe-catalog.mjs",
-  sample: "../../probe-sample.mjs",
-  report: "../../render-catalog-html.mjs",
-  evidence: "../../probe-evidence.mjs",
+  probe: "../probe/probe-catalog.mjs",
+  sample: "../probe/probe-sample.mjs",
+  report: "../report/render-catalog-html.mjs",
+  evidence: "../probe/probe-evidence.mjs",
 };
 
 // Translate resolved CLI options to process.env keys (mutates `env`).

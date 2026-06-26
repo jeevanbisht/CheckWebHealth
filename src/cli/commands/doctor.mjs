@@ -23,7 +23,7 @@ export async function doctor(options = {}) {
   // 3. A launchable browser (only if Playwright imported)
   if (playwrightOk) {
     try {
-      const { launchBrowser } = await import("../../../probe-core.mjs");
+      const { launchBrowser } = await import("../../core/probe-core.mjs");
       const { browser, meta } = await withTimeout(launchBrowser(), 30000);
       await browser.close().catch(() => {});
       add(`Browser (${meta.channel})`, true, "");

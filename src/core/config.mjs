@@ -6,7 +6,7 @@
 // loadConfig() is pure: pass an explicit env object and/or config file path to
 // exercise it deterministically from unit tests.
 import { readFileSync, existsSync } from "node:fs";
-import { oneOf, CHANNELS, SHOT_MODES } from "./src/utils/validate.mjs";
+import { oneOf, CHANNELS, SHOT_MODES } from "../utils/validate.mjs";
 
 export const DEFAULTS = {
   // Declarative list of network paths to compare. Each entry tags an output
@@ -27,7 +27,7 @@ export const DEFAULTS = {
   shots: "fail", // screenshot mode: all|fail|none
   har: false, // export a true per-host .har on the evidence pass
   evidence: true, // capture console + network log on failures
-  outDir: "akamai-probe-results/catalog",
+  outDir: "checkwebhealth-results/catalog",
 };
 
 function num(v, fallback) {

@@ -2,6 +2,7 @@
 node_modules/
 
 # Probe output (may contain cookies/tokens — keep out of git)
+checkwebhealth-results/
 akamai-probe-results/
 
 # HAR captures contain cookies, auth headers, tokens — never commit

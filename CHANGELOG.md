@@ -13,10 +13,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Added npm-publish packaging metadata for the package `bin`, ESM `exports`, and published `files` surface.
 - Added community health files for contributing, security reporting, code of conduct, issue forms, pull request template, funding metadata, and changelog tracking.
 - Added a release-driven npm publish workflow for tagged GitHub Releases.
+- Added a report **Diagnostics** panel summarizing failed network layers (DNS/TCP/TLS/TIMEOUT/HTTP) and median response time.
+
+### Changed
+
+- Reorganized the source tree into `src/{core,probe,report,cli,utils}` for clearer separation; the engine and A/B detection logic are unchanged.
+- Renamed the default output directory from `akamai-probe-results/` to `checkwebhealth-results/` (override with `--output` / `OUT_DIR`).
 
 ### Fixed
 
 - Ensured report and evidence steps honor `OUT_DIR` so generated reports, screenshots, and HAR evidence stay in the configured output directory.
+- The `report` command now prints a clear, actionable message (instead of a stack trace) when run before any probe has produced results.
 
 ## [1.0.0] - 2026-06-25
 

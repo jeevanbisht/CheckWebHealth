@@ -6,20 +6,25 @@ results*, see `GSA-Catalog-Probe-Runbook.md`.
 
 ---
 
-## 1. Files to copy
+## 1. Get the files
 
-Put these in **one folder** on the target machine:
+The project ships as a single tree (npm package or git clone) — keep it together; the
+scripts resolve each other by relative path under `src/`.
+
+```powershell
+git clone https://github.com/jeevanbisht/CheckWebHealth.git
+cd CheckWebHealth
+```
+
+Key paths:
 
 ```
 package.json
-sites-catalog.mjs          # the 50×50 site catalog
-probe-core.mjs             # shared probe engine
-probe-catalog.mjs          # the full 2,500-site probe
-probe-sample.mjs           # 10-category sample probe
-probe-evidence.mjs         # re-screenshot pass for non-OK rows
-render-catalog-html.mjs    # the HTML report generator
-GSA-Catalog-Probe-Runbook.md
-INSTALL.md                 # this file
+bin/checkwebhealth.mjs          # CLI entry point
+src/core/                       # probe-core.mjs, config.mjs, sites-catalog.mjs (engine)
+src/probe/                      # probe-catalog.mjs, probe-sample.mjs, probe-evidence.mjs
+src/report/                     # render-catalog-html.mjs (HTML report)
+src/cli/                        # CLI parser + commands
 ```
 
 ---
@@ -82,7 +87,7 @@ sudo npx playwright install-deps chromium
 ```powershell
 node --version
 npm ls playwright
-node -e "import('./sites-catalog.mjs').then(m=>console.log('catalog OK:', Object.keys(m.CATALOG).length,'categories,', Object.values(m.CATALOG).flat().length,'sites'))"
+node -e "import('./src/core/sites-catalog.mjs').then(m=>console.log('catalog OK:', Object.keys(m.CATALOG).length,'categories,', Object.values(m.CATALOG).flat().length,'sites'))"
 ```
 
 Expected: `catalog OK: 50 categories, 2500 sites`
@@ -112,21 +117,21 @@ false rate-limit blocks). A quick 10-category smoke test: `npm run sample`.
 Outputs land in:
 
 ```
-akamai-probe-results/catalog/results-direct.json    # baseline arm
-akamai-probe-results/catalog/results-gsa.json       # test arm
-akamai-probe-results/catalog/results-catalog.json   # last arm (legacy single-arm view)
-akamai-probe-results/catalog/report-catalog.html    # open in a browser
+checkwebhealth-results/catalog/results-direct.json    # baseline arm
+checkwebhealth-results/catalog/results-gsa.json       # test arm
+checkwebhealth-results/catalog/results-catalog.json   # last arm (legacy single-arm view)
+checkwebhealth-results/catalog/report-catalog.html    # open in a browser
 ```
 
 Open the report:
 
 ```powershell
 # Windows
-Start-Process .\akamai-probe-results\catalog\report-catalog.html
+Start-Process .\checkwebhealth-results\catalog\report-catalog.html
 # macOS
-open ./akamai-probe-results/catalog/report-catalog.html
+open ./checkwebhealth-results/catalog/report-catalog.html
 # Linux
-xdg-open ./akamai-probe-results/catalog/report-catalog.html
+xdg-open ./checkwebhealth-results/catalog/report-catalog.html
 ```
 
 ### Adjust concurrency (keep it low)

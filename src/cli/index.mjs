@@ -11,7 +11,7 @@ import { runScript } from "./run.mjs";
 import { doctor } from "./commands/doctor.mjs";
 import { init } from "./commands/init.mjs";
 import { showConfig } from "./commands/config.mjs";
-import { loadConfig } from "../../config.mjs";
+import { loadConfig } from "../core/config.mjs";
 
 function pkgVersion() {
   try { return JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version; }

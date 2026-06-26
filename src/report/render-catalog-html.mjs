@@ -3,12 +3,12 @@
 // results-catalog.json array (single arm). When both a "direct" baseline and a
 // "gsa" arm exist it computes a per-site delta and surfaces NETWORK-CAUSED
 // blocks (OK direct -> not OK on GSA) — the only rows that prove the network is
-// the cause. Output: akamai-probe-results/catalog/report-catalog.html
+// the cause. Output: <outDir>/report-catalog.html (default checkwebhealth-results/catalog)
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { diffHeaders, scoreConfidence } from "./probe-core.mjs";
-import { loadConfig } from "./config.mjs";
+import { diffHeaders, scoreConfidence } from "../core/probe-core.mjs";
+import { loadConfig } from "../core/config.mjs";
 
 const DIR = loadConfig().outDir;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -16,6 +16,11 @@ const VCLASS = { BLOCKED: "blocked", IP_REPUTATION: "iprep", HUMAN_CHALLENGE: "c
 const BLOCKish = ["BLOCKED", "IP_REPUTATION", "HUMAN_CHALLENGE", "BOT_CHALLENGE"];
 
 // ---- load arms -------------------------------------------------------------
+if (!existsSync(DIR)) {
+  console.error(`No results directory at "${DIR}".`);
+  console.error(`Run a probe first, e.g.  checkwebhealth probe --arm gsa  (or set --output).`);
+  process.exit(1);
+}
 const arms = {}; // arm -> { meta, results }
 for (const f of readdirSync(DIR)) {
   const m = f.match(/^results-([a-z0-9_-]+)\.json$/i);
@@ -252,6 +257,32 @@ const allStatuses = Object.keys(statusCounts).sort((a, b) => {
   return String(a).localeCompare(String(b));
 });
 
+// ---- network diagnostics: failure layers + response timing ----------------
+// Lightweight, computed from data already captured (no extra probing). The
+// failed network layer (DNS/TCP/TLS/TIMEOUT/HTTP) separates network-path
+// problems from WAF/HTTP blocks; median response time gives a sense of the path.
+function responseMsOf(r) {
+  const chain = Array.isArray(r.redirectChain) ? r.redirectChain : [];
+  const last = chain.length ? chain[chain.length - 1] : null;
+  return last && typeof last.ms === "number" ? last.ms : null;
+}
+function median(nums) {
+  const a = nums.filter((n) => typeof n === "number" && isFinite(n)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : Math.round((a[mid - 1] + a[mid]) / 2);
+}
+const layerCounts = {};
+for (const r of results) if (r.errorLayer) layerCounts[r.errorLayer] = (layerCounts[r.errorLayer] || 0) + 1;
+const respMed = median(results.map(responseMsOf));
+const respOkMed = median(results.filter((r) => r.verdict === "OK").map(responseMsOf));
+const layerBits = Object.entries(layerCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="tag">${esc(k)}: ${v}</span>`).join(" ");
+const diagBar = `<div class="vendbar"><span style="align-self:center">Diagnostics:</span>`
+  + (respMed != null ? ` <span class="tag">median response: ${respMed}ms</span>` : "")
+  + (respOkMed != null ? ` <span class="tag">median response (OK): ${respOkMed}ms</span>` : "")
+  + (layerBits ? ` <span style="align-self:center">· failure layers:</span> ${layerBits}` : ` <span class="tag">no network-layer failures</span>`)
+  + `</div>`;
+
 function egressLine(arm) {
   const m = arms[arm].meta || {};
   const e = m.egress || {};
@@ -331,6 +362,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   <p class="sub">${results.length} sites · ${categories.length} categories · arms: ${esc(armNames.join(", "))} · ${esc(now)}</p>
   <div class="headline">${esc(headline)}</div>
   <div class="egressbar">${armNames.map(egressLine).join("")}</div>
+  ${diagBar}
 
   <div class="cards">
     ${dual ? `<button class="kpi kpi-filter blocked" data-filter="delta:NETWORK-CAUSED"><div class="n">${overall.networkCaused}</div><div class="l">Network-caused</div></button>` : ""}
