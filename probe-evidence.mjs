@@ -6,13 +6,16 @@
 // Resilient + resumable: saves progress incrementally, relaunches the browser if
 // it crashes, and skips rows already captured (re-run to resume).
 //   PROBE_ARM=gsa node probe-evidence.mjs
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { launchBrowser, makeContext, captureEgress, probeOne } from "./probe-core.mjs";
+import { launchBrowser, makeContext, captureEgress, probeOne, slugify } from "./probe-core.mjs";
 
 const ARM = process.env.PROBE_ARM || "gsa";
+const HAR = process.env.HAR === "1"; // export a true per-host .har for each failed row
 const OUT_DIR = join("akamai-probe-results", "catalog");
 const SHOT_DIR = join(OUT_DIR, "shots");
+const HAR_DIR = join(OUT_DIR, "har", ARM);
+if (HAR) mkdirSync(HAR_DIR, { recursive: true });
 const file = join(OUT_DIR, `results-${ARM}.json`);
 
 const data = JSON.parse(readFileSync(file, "utf8"));
@@ -43,9 +46,21 @@ const egress = await captureEgress(ctx);
 console.log(`Egress now: ${egress.ip || "?"} ${egress.org || ""}`);
 
 async function probe(row) {
-  return probeOne(ctx, { category: row.category, host: row.host }, {
-    arm: ARM, shotMode: "all", outDir: OUT_DIR, shotDir: SHOT_DIR,
-  });
+  const common = { arm: ARM, shotMode: "all", outDir: OUT_DIR, shotDir: SHOT_DIR, evidence: true };
+  // With HAR enabled, give this host its own context wired to recordHar so the
+  // .har holds only this site's traffic; close it afterwards to flush the file.
+  if (HAR) {
+    const harRel = join("har", ARM, slugify(row.host) + ".har");
+    const harCtx = await makeContext(browser, { recordHar: { path: join(OUT_DIR, harRel), mode: "minimal" } });
+    try {
+      const res = await probeOne(harCtx, { category: row.category, host: row.host }, common);
+      res.har = harRel;
+      return res;
+    } finally {
+      await harCtx.close().catch(() => {});
+    }
+  }
+  return probeOne(ctx, { category: row.category, host: row.host }, common);
 }
 
 let done = 0;
@@ -66,6 +81,9 @@ for (const row of todo) {
   row.recheckAt = new Date().toISOString();
   if (!row.reference && res.reference) row.reference = res.reference;
   if ((!row.edgeIp || row.edgeIp === "-") && res.edgeIp && res.edgeIp !== "-") row.edgeIp = res.edgeIp;
+  if (res.har) row.har = res.har;
+  if (res.evidence && (res.evidence.console || res.evidence.netlog)) row.evidence = res.evidence;
+  if (res.reason) row.recheckReason = res.reason;
   done++;
   const note = row.recheckVerdict === row.verdict ? "still " + row.verdict : row.verdict + "→" + row.recheckVerdict;
   console.log(`  ${done}/${todo.length}  ${row.host}  (${note})`);
