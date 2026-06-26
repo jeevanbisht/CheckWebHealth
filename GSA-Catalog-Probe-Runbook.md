@@ -43,11 +43,14 @@ the filtered view.
 | File | Purpose |
 |------|---------|
 | `src/core/sites-catalog.mjs` | The 50×50 site catalog (`CATALOG` export). Edit to change sites. |
-| `src/core/probe-core.mjs` | Shared probe engine (Edge launch, stealth, egress capture, classify). |
+| `src/core/probe-core.mjs` | Shared probe engine (Edge launch, stealth, egress + environment capture, classify). |
+| `src/core/diagnosis.mjs` | Staged diagnostic pipeline: browser trust → path-comparison validity → root cause. |
+| `src/core/browser-parity.mjs` | Manual Browser Parity (real-Edge profile, snapshot, copied diagnostic profile, sanitisation). |
 | `src/core/config.mjs` | Resolved run config (DEFAULTS ← file ← env ← CLI flags). |
 | `src/probe/probe-catalog.mjs` | Full 2,500-site probe. Writes `results-<arm>.json` + `results-catalog.json`. |
 | `src/probe/probe-sample.mjs` | Quick 10-category sample probe (same engine) for spot checks. |
-| `src/report/render-catalog-html.mjs` | Renders the tabbed HTML report; merges arms into a delta. |
+| `src/probe/probe-validate.mjs` | Headed re-validation pass: re-probes automation-suspect rows headed to strip false positives. |
+| `src/report/render-catalog-html.mjs` | Renders the tabbed HTML report; merges arms into a delta + staged diagnosis. |
 | `src/probe/probe-evidence.mjs` | Re-screenshots the non-OK rows of an existing run (for runs done without shots). |
 
 Clone the repo onto the target machine (the files resolve each other by relative path).
@@ -108,6 +111,8 @@ Writes `results-gsa.json` (tagged with the GSA egress IP/ASN).
 | `CONC` | `4` | Parallel contexts (catalog probe). Keep modest. |
 | `PROBE_CHANNEL` | `msedge` | Browser channel (`msedge` / `chrome` / `chromium`). Falls back to bundled Chromium. |
 | `PROBE_HEADED` | unset | Set `1` for a headed (visible) run — best forensic fidelity. |
+| `PROBE_PARITY` | unset | Set `1` to run the arm through manual-parity Edge (real profile via a safe copy, no stealth). |
+| `OUT_DIR` | `checkwebhealth-results/catalog` | Output directory for results, screenshots and the report. |
 | `SHOTS` | unset | Set `1` to capture per-site screenshots (heavy for 2,500 sites). |
 
 ### 3) Render the report (merges both arms)
@@ -118,7 +123,24 @@ checkwebhealth report --open
 
 The report auto-detects `results-direct.json` + `results-gsa.json`, adds a **Direct vs GSA** column,
 and a **NETWORK-CAUSED** KPI/filter. With only one arm present it renders single-arm (no delta).
-Fully self-contained — safe to email/share.
+Fully self-contained — safe to email/share. It also runs the **staged diagnostic pipeline**: a per-arm
+**Browser Environment + Trust Score** panel and a per-row **Diagnosis** (browser trust → path-comparison
+validity → root cause), so a site that fails on every path with an untrusted browser is reported as
+`AUTOMATION_OR_BROWSER_POSTURE` / `TOOL_BROWSER_BLOCKED`, never `IP_REPUTATION`.
+
+### 4) Validate the browser environment (strip headless false positives)
+
+A headless probe can't separate egress-IP reputation from headless-bot detection. Re-probe the
+automation-suspect rows **headed** (a real Edge profile) so the report's diagnosis is trustworthy:
+
+```powershell
+checkwebhealth validate --arm gsa                   # IP_REPUTATION rows (default)
+checkwebhealth validate --arm gsa --include-blocked # + BLOCKED / challenge rows
+checkwebhealth report                               # refresh verdicts + diagnoses
+```
+
+Suspects that load headed are promoted to `OK` (`automationFalsePositive`); those still denied headed are
+kept (`headedConfirmed`) — only those `IP_REPUTATION` verdicts are defensible.
 
 ### Quick sample (10 categories) for a smoke test
 

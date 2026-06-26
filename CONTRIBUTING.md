@@ -33,7 +33,7 @@ Use the local CLI entry point while developing:
 node bin/checkwebhealth.mjs <command>
 ```
 
-Common commands include `probe`, `sample`, `report`, `evidence`, `doctor`, `init`, `config`, and `version`. Keep probe concurrency modest unless you are intentionally testing rate limits; excessive parallelism can create false positives from CDN/WAF reputation systems.
+Common commands include `probe`, `sample`, `report`, `evidence`, `validate`, `parity`, `doctor`, `init`, `config`, and `version`. Keep probe concurrency modest unless you are intentionally testing rate limits; excessive parallelism can create false positives from CDN/WAF reputation systems.
 
 ## Coding conventions
 
@@ -44,7 +44,7 @@ Common commands include `probe`, `sample`, `report`, `evidence`, `doctor`, `init
 - Preserve the existing detection/verdict logic and output taxonomy unless the change is a clearly scoped bug fix.
 - Never commit raw probe output, screenshots, HAR files, cookies, tokens, or other customer/site evidence.
 
-The detection logic in `src/core/probe-core.mjs` - especially `classify`, `deriveReason`, and the verdict taxonomy - is central to the tool's defensibility. The A/B Direct-vs-GSA methodology must also be preserved: run the same probe through a direct baseline and a GSA arm, then compare them to identify `NETWORK-CAUSED` blocks. Bug fixes are welcome; redesigns to this logic need an issue first with rationale and examples.
+The detection logic in `src/core/probe-core.mjs` - especially `classify`, `deriveReason`, and the verdict taxonomy - is central to the tool's defensibility. The A/B Direct-vs-GSA methodology must also be preserved: run the same probe through a direct baseline and a GSA arm, then compare them to identify `NETWORK-CAUSED` blocks. The staged diagnostic pipeline in `src/core/diagnosis.mjs` (browser trust → path-comparison validity → root cause) is equally central: never surface a strong network-path diagnosis (e.g. `IP_REPUTATION`) when the diagnostic browser is untrusted or when every automated path failed — that case is `AUTOMATION_OR_BROWSER_POSTURE` / `TOOL_BROWSER_BLOCKED`. Bug fixes are welcome; redesigns to this logic need an issue first with rationale and examples.
 
 ## Commit messages
 

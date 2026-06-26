@@ -21,8 +21,8 @@ Key paths:
 ```
 package.json
 bin/checkwebhealth.mjs          # CLI entry point
-src/core/                       # probe-core.mjs, config.mjs, sites-catalog.mjs (engine)
-src/probe/                      # probe-catalog.mjs, probe-sample.mjs, probe-evidence.mjs
+src/core/                       # probe-core.mjs, diagnosis.mjs, browser-parity.mjs, config.mjs, sites-catalog.mjs (engine)
+src/probe/                      # probe-catalog.mjs, probe-sample.mjs, probe-validate.mjs, probe-evidence.mjs
 src/report/                     # render-catalog-html.mjs (HTML report)
 src/cli/                        # CLI parser + commands
 ```
@@ -133,6 +133,24 @@ open ./checkwebhealth-results/catalog/report-catalog.html
 # Linux
 xdg-open ./checkwebhealth-results/catalog/report-catalog.html
 ```
+
+## 6. Validate the browser environment (strip false positives)
+
+A **headless** probe can't tell egress-IP reputation apart from headless-bot detection — Akamai/Cloudflare/PerimeterX
+block headless browsers on **any** IP. Before escalating, re-probe the automation-suspect rows **headed** so the
+report's diagnostic pipeline (browser trust → path validity → root cause) can separate a real network block from the
+diagnostic browser being blocked:
+
+```powershell
+checkwebhealth validate --arm gsa                   # re-probe IP_REPUTATION rows headed
+checkwebhealth validate --arm gsa --include-blocked # also BLOCKED / challenge rows
+checkwebhealth report                               # refresh verdicts + diagnoses
+```
+
+Suspects that load fine headed are promoted to `OK` (`automationFalsePositive`); those still denied headed are kept
+(`headedConfirmed`). The report shows a per-arm **Browser Environment + Trust Score** panel and a per-row **Diagnosis**
+block. When the browser isn't trusted (e.g. a headless run), sites that fail on **every** path are reported as
+`AUTOMATION_OR_BROWSER_POSTURE` / `TOOL_BROWSER_BLOCKED` — never `IP_REPUTATION`.
 
 ### Adjust concurrency (keep it low)
 High concurrency from one egress IP looks like a scraper and triggers false rate-limit blocks. The
