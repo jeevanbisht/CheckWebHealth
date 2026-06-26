@@ -134,6 +134,15 @@ test("rootCause maps transport + WAF reasons", () => {
   assert.equal(rootCause({ direct: { verdict: "OK" }, gsa: { verdict: "BLOCKED", reason: "HTTP_403" } }), PRIMARY.NETWORK);
 });
 
+test("diagnoseHost: single-arm transport ERROR is a NETWORK/DNS/TLS fault (inconclusive), NOT browser posture", () => {
+  const tls = diagnoseHost({ perPath: { gsa: { verdict: "ERROR", reason: "TLS_FAILURE" } }, env: { headless: false, profileType: "persistent", cookiesPresent: 5 } });
+  assert.equal(tls.pathValidity, PATH_VALIDITY.BOTH_FAILED);
+  assert.equal(tls.primaryDiagnosis, PRIMARY.TLS);
+  assert.equal(tls.reliability, RELIABILITY.INCONCLUSIVE);
+  const to = diagnoseHost({ perPath: { gsa: { verdict: "ERROR", reason: "TIMEOUT" } }, env: { headless: false, profileType: "persistent", cookiesPresent: 5 } });
+  assert.equal(to.primaryDiagnosis, PRIMARY.NETWORK);
+});
+
 // ---- Confidence separation ------------------------------------------------
 test("scoreConfidences: untrusted browser caps network diagnosis but floors a tool-blocked call", () => {
   const perPath = { direct: { verdict: "BLOCKED", status: 403 }, gsa: { verdict: "BLOCKED", status: 403 } };

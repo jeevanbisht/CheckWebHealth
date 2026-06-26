@@ -402,10 +402,17 @@ export function diagnoseHost({ perPath = {}, env = {}, primaryArm = "gsa", basel
     else if (base && isOK(base.verdict) && !isOK(primary.verdict)) verdict = DIAG_VERDICT.NETWORK_CAUSED;
     else verdict = DIAG_VERDICT.SITE_OR_ACCOUNT;
   } else {
-    // Browser-attributable (TOOL_BLOCKED / CLIENT_POSTURE / MANUAL_REQUIRED / BOTH_FAILED)
-    primaryDiagnosis = PRIMARY.BROWSER_POSTURE;
-    secondary = secondaryReason(env, primary);
-    verdict = pathValidity === PATH_VALIDITY.BOTH_FAILED ? DIAG_VERDICT.INCONCLUSIVE : DIAG_VERDICT.TOOL_BROWSER_BLOCKED;
+    // Comparison invalid. A transport ERROR (DNS/TLS/TCP/timeout) with no valid
+    // comparison is a network/site fault we surface at reduced reliability — NOT
+    // browser posture. Only block/challenge failures implicate the tool browser.
+    if (pathValidity === PATH_VALIDITY.BOTH_FAILED && isErr(primary.verdict)) {
+      primaryDiagnosis = rootCause(perPath, primaryArm, baselineArm); // NETWORK / DNS / TLS
+      verdict = DIAG_VERDICT.INCONCLUSIVE;
+    } else {
+      primaryDiagnosis = PRIMARY.BROWSER_POSTURE;
+      secondary = secondaryReason(env, primary);
+      verdict = pathValidity === PATH_VALIDITY.BOTH_FAILED ? DIAG_VERDICT.INCONCLUSIVE : DIAG_VERDICT.TOOL_BROWSER_BLOCKED;
+    }
   }
 
   const reliability = diagnosticReliability(browserEnvironment, pathValidity, perPath, primaryArm, baselineArm);
